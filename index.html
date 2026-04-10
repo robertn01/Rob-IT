@@ -5,587 +5,458 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VideoSpace — AI Video Summarizer</title>
   <style>
-    /* ── Reset & tokens ─────────────────────────────────────── */
+    /* ── Google Font: Inter ── */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── Space colour palette ── */
     :root {
-      --green:   #76b900;
-      --green-d: #5d9200;
-      --green-bg: rgba(118,185,0,.08);
-      --bg:      #f5f6f7;
-      --surface: #ffffff;
-      --border:  #e3e5e8;
-      --text:    #0f1117;
-      --muted:   #6b7280;
-      --radius:  14px;
-      --shadow:  0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+      --void:     #06080f;          /* deep space black */
+      --deep:     #0b0f1e;          /* card background  */
+      --surface:  #101629;          /* elevated surface */
+      --rim:      rgba(255,255,255,.07); /* subtle borders */
+      --rim-act:  rgba(118,185,0,.55);   /* active border  */
+      --text:     #e8ecf4;          /* primary text     */
+      --muted:    #6b7a99;          /* secondary text   */
+      --dim:      #3a4263;          /* disabled / dim   */
+      --green:    #76b900;          /* NVIDIA green     */
+      --green-d:  #5d9200;
+      --green-bg: rgba(118,185,0,.10);
+      --green-glow: rgba(118,185,0,.22);
+      --nebula1:  #1a1040;          /* purple nebula    */
+      --nebula2:  #0a1628;          /* blue nebula      */
+      --radius:   14px;
+      --glass:    rgba(16,22,41,.75);
+      --shadow:   0 4px 32px rgba(0,0,0,.55);
     }
 
     html { scroll-behavior: smooth; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                   "Helvetica Neue", Arial, sans-serif;
-      background: var(--bg);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--void);
       color: var(--text);
       min-height: 100vh;
-      padding: 48px 20px 80px;
-      line-height: 1.5;
+      padding: 52px 20px 90px;
+      line-height: 1.55;
+      /* Subtle deep-space radial gradient */
+      background-image:
+        radial-gradient(ellipse 80% 55% at 50% 0%,   var(--nebula1) 0%, transparent 65%),
+        radial-gradient(ellipse 60% 45% at 80% 100%,  var(--nebula2) 0%, transparent 60%);
     }
 
-    /* ── Layout ─────────────────────────────────────────────── */
-    .wrap { max-width: 680px; margin: 0 auto; }
+    /* ── Starfield canvas (behind everything) ── */
+    #stars {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    }
 
-    /* ── Header ─────────────────────────────────────────────── */
+    .wrap { max-width: 660px; margin: 0 auto; position: relative; z-index: 1; }
+
+    /* ── Header ── */
     header { text-align: center; margin-bottom: 52px; }
 
-    .wordmark {
-      display: inline-flex;
-      align-items: center;
-      gap: 9px;
-      margin-bottom: 14px;
+    .orbit {
+      display: inline-flex; align-items: center; gap: 10px; margin-bottom: 16px;
     }
-    .pip {
-      width: 10px; height: 10px;
-      background: var(--green);
+    /* Orbiting dots replaced with small planet-like circles */
+    .dot {
       border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
     }
-    .pip.small { width: 6px; height: 6px; opacity: .5; }
+    .dot-lg { width: 9px; height: 9px; box-shadow: 0 0 10px var(--green); }
+    .dot-sm { width: 5px; height: 5px; opacity: .45; box-shadow: 0 0 6px var(--green); }
 
     h1 {
-      font-size: 30px;
-      font-weight: 700;
-      letter-spacing: -.6px;
-      color: var(--text);
+      font-size: 36px; font-weight: 700; letter-spacing: -1px;
+      background: linear-gradient(135deg, #e8ecf4 30%, #76b900 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
-
-    .tagline {
-      font-size: 15px;
-      color: var(--muted);
-      margin-top: 6px;
-    }
-
+    .tagline { font-size: 14.5px; color: var(--muted); margin-top: 8px; letter-spacing: .01em; }
     .powered {
-      margin-top: 10px;
-      font-size: 11.5px;
-      color: var(--muted);
-      letter-spacing: .02em;
+      margin-top: 10px; font-size: 11px; color: var(--dim); letter-spacing: .06em;
+      text-transform: uppercase;
     }
-    .powered strong { color: var(--green); font-weight: 600; }
+    .powered strong { color: var(--green); font-weight: 600; letter-spacing: 0; text-transform: none; }
 
-    /* ── Cards ──────────────────────────────────────────────── */
+    /* ── Cards — glassmorphism panels ── */
     .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
+      background: var(--glass);
+      border: 1px solid var(--rim);
       border-radius: var(--radius);
       padding: 22px 24px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
       box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      transition: border-color .2s;
     }
+    .card:focus-within { border-color: var(--rim-act); }
 
     .card-label {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .09em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 12px;
+      font-size: 10.5px; font-weight: 600; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
     }
 
-    /* ── Inputs ─────────────────────────────────────────────── */
-    .field-wrap {
-      position: relative;
-      display: flex;
-      align-items: center;
+    /* ── Tabs ── */
+    .tab-row { display: flex; gap: 6px; margin-bottom: 14px; }
+    .tab-btn {
+      padding: 6px 15px; border-radius: 7px;
+      border: 1px solid var(--rim);
+      background: transparent;
+      font-size: 12px; font-weight: 600; font-family: inherit;
+      color: var(--muted); cursor: pointer;
+      transition: border-color .15s, color .15s, background .15s;
     }
-
-    input[type="text"],
-    input[type="password"],
-    input[type="file"],
-    select {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1.5px solid var(--border);
-      border-radius: 9px;
-      font-size: 14px;
-      font-family: inherit;
-      color: var(--text);
-      background: #fff;
-      outline: none;
-      transition: border-color .15s, box-shadow .15s;
-    }
-    input[type="text"]:focus,
-    input[type="password"]:focus,
-    input[type="file"]:focus,
-    select:focus {
+    .tab-btn.active {
       border-color: var(--green);
-      box-shadow: 0 0 0 3px rgba(118,185,0,.12);
+      background: var(--green-bg);
+      color: var(--green);
     }
-    input::placeholder { color: #b0b6be; }
+    .tab-pane { display: none; }
+    .tab-pane.show { display: block; }
 
+    /* ── Inputs ── */
+    .field-wrap { position: relative; display: flex; align-items: center; }
+    input[type="text"], input[type="password"] {
+      width: 100%; padding: 10px 14px;
+      border: 1px solid var(--rim);
+      border-radius: 9px; font-size: 13.5px; font-family: inherit;
+      color: var(--text); background: rgba(6,8,15,.6);
+      outline: none; transition: border-color .15s, box-shadow .15s;
+    }
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-color: var(--green);
+      box-shadow: 0 0 0 3px var(--green-glow);
+    }
+    input::placeholder { color: var(--dim); }
     .eye-btn {
-      position: absolute;
-      right: 12px;
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 16px;
-      line-height: 1;
-      padding: 4px;
+      position: absolute; right: 12px; background: none; border: none;
+      cursor: pointer; color: var(--muted); font-size: 15px; line-height: 1; padding: 4px;
     }
-
-    .hint {
-      font-size: 12px;
-      color: var(--muted);
-      margin-top: 8px;
-    }
+    .hint { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
     .hint a { color: var(--green); text-decoration: none; }
     .hint a:hover { text-decoration: underline; }
 
-    /* ── Model chips ────────────────────────────────────────── */
-    .model-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
+    /* ── Upload zone ── */
+    .upload-zone {
+      border: 1.5px dashed var(--rim);
+      border-radius: 10px; padding: 28px 20px; text-align: center;
+      cursor: pointer; transition: border-color .2s, background .2s;
+      position: relative; background: rgba(6,8,15,.3);
     }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--green); background: var(--green-bg);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-icon { font-size: 24px; margin-bottom: 8px; }
+    .upload-label { font-size: 13px; font-weight: 600; color: var(--text); }
+    .upload-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+    .upload-filename { display: none; margin-top: 10px; font-size: 12px; color: var(--green); font-weight: 600; }
+    .upload-filename.show { display: block; }
 
-    .model-chip {
-      position: relative;
-      cursor: pointer;
-    }
-    .model-chip input[type="radio"] {
-      position: absolute;
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
+    /* ── Model chips ── */
+    .model-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; }
+    .model-chip { position: relative; }
+    .model-chip input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; }
     .model-chip label {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding: 13px 14px;
-      border: 1.5px solid var(--border);
-      border-radius: 10px;
-      cursor: pointer;
-      transition: border-color .15s, background .15s;
-      user-select: none;
+      display: flex; flex-direction: column; gap: 4px; padding: 12px 14px;
+      border: 1px solid var(--rim); border-radius: 10px; cursor: pointer;
+      background: rgba(6,8,15,.4);
+      transition: border-color .15s, background .15s; user-select: none;
     }
     .model-chip input[type="radio"]:checked + label {
-      border-color: var(--green);
-      background: var(--green-bg);
+      border-color: var(--green); background: var(--green-bg);
+      box-shadow: 0 0 16px var(--green-glow);
     }
-    .model-chip label .m-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-    }
-    .model-chip label .m-desc {
-      font-size: 11px;
-      color: var(--muted);
-    }
+    .model-chip .m-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
+    .model-chip .m-desc { font-size: 10.5px; color: var(--muted); }
     .badge {
-      display: inline-block;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 1px 6px;
-      border-radius: 100px;
-      margin-top: 4px;
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 2px 7px; border-radius: 100px; margin-top: 5px;
     }
-    .badge-fast  { background: #dcfce7; color: #15803d; }
-    .badge-deep  { background: #eff6ff; color: #1d4ed8; }
-    .badge-both  { background: #fef3c7; color: #92400e; }
+    .badge-fast { background: rgba(118,185,0,.18); color: #9fe832; }
+    .badge-deep { background: rgba(99,102,241,.2);  color: #a5b4fc; }
+    .badge-both { background: rgba(245,158,11,.15); color: #fcd34d; }
 
-    /* ── Submit row ─────────────────────────────────────────── */
-    .submit-row {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      margin-top: 6px;
-      margin-bottom: 20px;
-    }
+    /* ── Keyword row ── */
+    .kw-row { display: flex; gap: 10px; align-items: center; }
+    .kw-row input { flex: 1; }
 
+    /* ── Submit ── */
+    .submit-row { display: flex; align-items: center; gap: 16px; margin-top: 8px; margin-bottom: 20px; }
     .btn {
-      padding: 11px 26px;
-      border-radius: 9px;
-      border: none;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      transition: background .15s, opacity .15s;
+      padding: 11px 26px; border-radius: 9px; border: none;
+      font-size: 13.5px; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: background .15s, box-shadow .15s, opacity .15s;
     }
     .btn-primary {
-      background: var(--green);
-      color: #fff;
-      min-width: 140px;
+      background: var(--green); color: #fff; min-width: 168px;
+      box-shadow: 0 0 20px var(--green-glow);
     }
-    .btn-primary:hover:not(:disabled) { background: var(--green-d); }
-    .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
-
+    .btn-primary:hover:not(:disabled) {
+      background: var(--green-d);
+      box-shadow: 0 0 28px rgba(118,185,0,.4);
+    }
+    .btn-primary:disabled { opacity: .35; cursor: not-allowed; box-shadow: none; }
     .btn-ghost {
-      background: transparent;
-      border: 1.5px solid var(--border);
-      color: var(--muted);
+      background: transparent; border: 1px solid var(--rim); color: var(--muted);
     }
-    .btn-ghost:hover { background: var(--bg); }
+    .btn-ghost:hover { background: rgba(255,255,255,.04); color: var(--text); }
 
-    /* ── Status ─────────────────────────────────────────────── */
-    .status-wrap {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      color: var(--muted);
-      font-size: 13px;
-    }
+    /* ── Status ── */
+    .status-wrap { display: none; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
     .status-wrap.show { display: flex; }
-
     .spinner {
       width: 15px; height: 15px;
-      border: 2px solid var(--border);
-      border-top-color: var(--green);
-      border-radius: 50%;
-      flex-shrink: 0;
-      animation: spin .7s linear infinite;
+      border: 2px solid var(--dim); border-top-color: var(--green);
+      border-radius: 50%; flex-shrink: 0; animation: spin .7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Error ──────────────────────────────────────────────── */
+    /* ── Error ── */
     .error-box {
-      display: none;
-      padding: 12px 16px;
-      background: #fff5f5;
-      border: 1.5px solid #fca5a5;
-      border-radius: 9px;
-      color: #dc2626;
-      font-size: 13px;
-      margin-bottom: 14px;
+      display: none; padding: 12px 16px;
+      background: rgba(220,38,38,.1); border: 1px solid rgba(220,38,38,.35);
+      border-radius: 9px; color: #fca5a5; font-size: 13px; margin-bottom: 14px;
+      line-height: 1.5;
     }
     .error-box.show { display: block; }
 
-    /* ── Results card ───────────────────────────────────────── */
+    /* ── Results ── */
     .results {
       display: none;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 24px;
-      box-shadow: var(--shadow);
-      margin-bottom: 14px;
+      background: var(--glass); border: 1px solid var(--rim);
+      border-radius: var(--radius); padding: 24px;
+      box-shadow: var(--shadow); margin-bottom: 14px;
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     }
     .results.show { display: block; }
 
-    /* Video meta row */
-    .video-meta {
-      display: none;
-      align-items: flex-start;
-      gap: 14px;
-      padding-bottom: 20px;
-      margin-bottom: 20px;
-      border-bottom: 1px solid var(--border);
-    }
+    .video-meta { display: none; align-items: flex-start; gap: 14px; padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--rim); }
     .video-meta.show { display: flex; }
+    .thumb { width: 100px; height: 56px; border-radius: 7px; object-fit: cover; background: var(--deep); flex-shrink: 0; }
+    .v-title { font-size: 13.5px; font-weight: 600; margin-bottom: 3px; color: var(--text); }
+    .v-channel { font-size: 12px; color: var(--muted); }
 
-    .thumb {
-      width: 100px;
-      height: 56px;
-      border-radius: 7px;
-      object-fit: cover;
-      background: var(--border);
-      flex-shrink: 0;
-    }
-    .video-info .v-title {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 3px;
-    }
-    .video-info .v-channel {
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    /* Steps progress */
-    .steps {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
-    .step {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 12px;
-      color: #c0c5cc;
-      transition: color .2s;
-    }
+    /* Steps */
+    .steps { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .step { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--dim); transition: color .25s; }
     .step.active { color: var(--text); }
     .step.done   { color: var(--green); }
     .step-icon {
-      width: 18px; height: 18px;
-      border-radius: 50%;
+      width: 18px; height: 18px; border-radius: 50%;
       border: 1.5px solid currentColor;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 9px;
-      font-weight: 700;
-      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; flex-shrink: 0;
     }
-    .step.done .step-icon { background: var(--green); border-color: var(--green); color: #fff; }
-    .step-sep { color: #d1d5db; font-size: 11px; }
+    .step.done .step-icon { background: var(--green); border-color: var(--green); color: #fff; box-shadow: 0 0 8px var(--green-glow); }
+    .step-sep { color: var(--dim); font-size: 11px; }
 
-    /* Thinking collapsible */
-    .think-block {
-      display: none;
-      background: #f9fafb;
-      border: 1px solid var(--border);
-      border-radius: 9px;
-      padding: 12px 16px;
-      margin-bottom: 18px;
-    }
+    /* Keyword results */
+    .kw-results { display: none; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--rim); }
+    .kw-results.show { display: block; }
+    .kw-results-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+    .kw-list { display: flex; flex-direction: column; gap: 8px; }
+    .kw-item { display: flex; align-items: flex-start; gap: 10px; }
+    .kw-pill { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 100px; flex-shrink: 0; white-space: nowrap; }
+    .kw-pill.found { background: rgba(118,185,0,.18); color: #9fe832; }
+    .kw-pill.miss  { background: rgba(255,255,255,.05); color: var(--muted); }
+    .kw-context { font-size: 12px; color: var(--muted); line-height: 1.55; padding-top: 2px; }
+    .kw-ts { font-size: 11px; color: var(--green); font-weight: 600; }
+
+    /* Reasoning trace */
+    .think-block { display: none; background: rgba(6,8,15,.5); border: 1px solid var(--rim); border-radius: 9px; padding: 12px 16px; margin-bottom: 18px; }
     .think-block.show { display: block; }
-
-    .think-header {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      cursor: pointer;
-      user-select: none;
-      font-size: 12px;
-      color: var(--muted);
-    }
+    .think-header { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; font-size: 11.5px; color: var(--muted); }
     .think-arrow { font-size: 10px; transition: transform .2s; }
     .think-arrow.open { transform: rotate(90deg); }
-
-    .think-body {
-      display: none;
-      margin-top: 10px;
-      font-size: 12.5px;
-      color: var(--muted);
-      line-height: 1.65;
-      white-space: pre-wrap;
-      max-height: 320px;
-      overflow-y: auto;
-    }
+    .think-body { display: none; margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.65; white-space: pre-wrap; max-height: 320px; overflow-y: auto; }
     .think-body.show { display: block; }
 
-    /* Summary output */
-    .summary-out {
-      font-size: 15px;
-      line-height: 1.72;
+    /* Gist */
+    .gist-box {
+      display: none;
+      background: var(--green-bg);
+      border-left: 2px solid var(--green);
+      border-radius: 0 8px 8px 0;
+      padding: 12px 16px; margin-bottom: 16px;
+      font-size: 14px; font-weight: 500; line-height: 1.6;
       color: var(--text);
-      white-space: pre-wrap;
-      min-height: 40px;
+      box-shadow: inset 0 0 24px var(--green-glow);
     }
-    .summary-out.streaming::after {
-      content: "▋";
-      color: var(--green);
-      animation: blink 1s step-end infinite;
-    }
+    .gist-box.show { display: block; }
+
+    /* Summary */
+    .summary-out { font-size: 13.5px; line-height: 1.78; color: var(--text); white-space: pre-wrap; min-height: 40px; }
+    .summary-out.typing::after { content: "▋"; color: var(--green); animation: blink 1s step-end infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-    /* Metrics display */
-    .metrics-row {
-      display: none;
-      gap: 20px;
-      padding: 14px 0;
-      margin: 18px 0;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .metrics-row.show { display: flex; }
-
-    .metric {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-    .metric-label {
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      font-size: 10px;
-      letter-spacing: .05em;
-    }
-    .metric-value {
-      font-size: 14px;
-      color: var(--text);
-      font-variant-numeric: tabular-nums;
-    }
-    .metric-value.cache-hit { color: var(--green); }
-    .metric-value.cache-miss { color: #f59e0b; }
-
     /* Action row */
-    .action-row {
-      display: none;
-      gap: 10px;
-      margin-top: 20px;
-      padding-top: 18px;
-      border-top: 1px solid var(--border);
-    }
+    .action-row { display: none; gap: 10px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--rim); }
     .action-row.show { display: flex; }
 
-    /* ── Footer ─────────────────────────────────────────────── */
-    footer {
-      text-align: center;
-      margin-top: 52px;
-      font-size: 11.5px;
-      color: #adb5bd;
-    }
+    /* Footer */
+    footer { text-align: center; margin-top: 60px; font-size: 11px; color: var(--dim); letter-spacing: .01em; }
     footer a { color: var(--green); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
 
-    /* ── Responsive ─────────────────────────────────────────── */
-    @media (max-width: 520px) {
-      .model-grid { grid-template-columns: 1fr; }
-      h1 { font-size: 24px; }
+    /* VLM notice */
+    #vlmNotice {
+      display: none; margin-top: 12px; font-size: 11.5px; color: #fcd34d;
+      background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.25);
+      border-radius: 7px; padding: 9px 13px; line-height: 1.5;
     }
 
-    /* ── Loading video — travels around the viewport frame ── */
+    @media (max-width: 520px) { .model-grid { grid-template-columns: 1fr; } h1 { font-size: 28px; } }
+
+    /* ── Loading video — perimeter ── */
     #loadingVideo {
-      display: none;
-      position: fixed;
-      width: 220px;
-      aspect-ratio: 16 / 9;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow:
-        0 0 0 2px rgba(118,185,0,.5),
-        0 0 24px rgba(118,185,0,.35),
-        0 8px 32px rgba(0,0,0,.22);
-      z-index: 999;
-      pointer-events: none;
-      /* fade in */
-      opacity: 0;
-      transition: opacity .4s ease;
+      display: none; position: fixed; width: 200px; aspect-ratio: 16/9;
+      border-radius: 10px; overflow: hidden; z-index: 999; pointer-events: none;
+      opacity: 0; transition: opacity .4s ease;
     }
-    #loadingVideo.visible {
-      display: block;
-      opacity: 1;
-    }
-    #loadingVideo video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    /* Subtle animated green border pulse while active */
+    #loadingVideo.visible { display: block; opacity: 1; }
+    #loadingVideo video { width: 100%; height: 100%; object-fit: cover; display: block; }
     @keyframes glowPulse {
-      0%, 100% { box-shadow: 0 0 0 2px rgba(118,185,0,.5), 0 0 24px rgba(118,185,0,.35), 0 8px 32px rgba(0,0,0,.22); }
-      50%       { box-shadow: 0 0 0 2px rgba(118,185,0,.9), 0 0 40px rgba(118,185,0,.6), 0 8px 32px rgba(0,0,0,.3);  }
+      0%,100% { box-shadow: 0 0 0 1.5px rgba(118,185,0,.5), 0 0 20px rgba(118,185,0,.3), 0 0 50px rgba(118,185,0,.1); }
+      50%      { box-shadow: 0 0 0 1.5px rgba(118,185,0,.9), 0 0 36px rgba(118,185,0,.6), 0 0 70px rgba(118,185,0,.2); }
     }
-    #loadingVideo.visible { animation: glowPulse 2.2s ease-in-out infinite; }
+    #loadingVideo.visible { animation: glowPulse 2.4s ease-in-out infinite; }
   </style>
 </head>
 <body>
 
-<!-- ── Loading video widget (moves around viewport perimeter) ── -->
+<!-- Starfield -->
+<canvas id="stars"></canvas>
+
 <div id="loadingVideo">
-  <video
-    id="loadingVid"
-    src="img/Video_Distortion_and_Visual_Illusions.mp4"
-    autoplay
-    loop
-    muted
-    playsinline
-  ></video>
+  <video id="loadingVid" src="img/Video_Distortion_and_Visual_Illusions.mp4" autoplay loop muted playsinline></video>
 </div>
 
 <div class="wrap">
 
-  <!-- Header -->
   <header>
-    <div class="wordmark">
-      <div class="pip small"></div>
-      <div class="pip"></div>
+    <div class="orbit">
+      <div class="dot dot-sm"></div>
+      <div class="dot dot-lg"></div>
       <h1>VideoSpace</h1>
-      <div class="pip"></div>
-      <div class="pip small"></div>
+      <div class="dot dot-lg"></div>
+      <div class="dot dot-sm"></div>
     </div>
-    <p class="tagline">Upload your short video. Get an instant AI summary.</p>
-    <p class="powered">Powered by <strong>NVIDIA</strong> Cosmos&nbsp;Reason2&nbsp;·&nbsp;Nemotron&nbsp;Nano&nbsp;9B</p>
+    <p class="tagline">Paste a link or upload a file &mdash; get an instant AI-powered summary.</p>
+    <p class="powered">Powered by <strong>NVIDIA</strong> Cosmos Reason2 &middot; Nemotron Nano 9B</p>
   </header>
 
-  <!-- File upload -->
+  <!-- Input card -->
   <div class="card">
-    <p class="card-label">Video File</p>
-    <div class="field-wrap">
-      <input type="file" id="videoFile"
-             accept="video/mp4,video/webm,video/ogg,video/quicktime"
-             autocomplete="off" />
+    <p class="card-label">Video Source</p>
+    <div class="tab-row">
+      <button class="tab-btn active" id="tabUrl"    onclick="switchTab('url')">&#128279; URL</button>
+      <button class="tab-btn"        id="tabUpload" onclick="switchTab('upload')">&#128196; Upload</button>
     </div>
-    <p class="hint">
-      Supported formats: MP4, WebM, Ogg, MOV. Max file size: 100 MB.
-      Processed entirely in your browser.
-    </p>
+    <div class="tab-pane show" id="paneUrl">
+      <div class="field-wrap">
+        <input type="text" id="videoUrl"
+               placeholder="https://youtube.com/watch?v=&hellip; or direct .mp4 link"
+               autocomplete="off" spellcheck="false" />
+      </div>
+      <p class="hint">YouTube, Vimeo, or any direct .mp4 / .webm link.</p>
+    </div>
+    <div class="tab-pane" id="paneUpload">
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept="video/*" onchange="onFileChosen(this)" />
+        <div class="upload-icon">&#127916;</div>
+        <p class="upload-label">Drop a video here or click to browse</p>
+        <p class="upload-sub">MP4, WebM, MOV &mdash; any size</p>
+        <p class="upload-filename" id="uploadFilename"></p>
+      </div>
+      <p class="hint" style="margin-top:10px;">
+        Frames are extracted <strong>locally in your browser</strong> &mdash;
+        the file is never uploaded anywhere. NVIDIA&rsquo;s VLM analyses the frames directly.
+      </p>
+    </div>
   </div>
 
   <!-- API Key -->
   <div class="card">
     <p class="card-label">NVIDIA API Key</p>
     <div class="field-wrap">
-      <input type="password" id="apiKey" placeholder="nvapi-…" autocomplete="off" />
-      <button class="eye-btn" onclick="toggleKey()" title="Show / hide">👁</button>
+      <input type="password" id="apiKey" placeholder="nvapi-&hellip;" autocomplete="off" />
+      <button class="eye-btn" onclick="toggleKey()" title="Show / hide">&#128065;</button>
     </div>
     <p class="hint">
-      Stored locally in your browser. Video stays on your machine.
-      Only frame analysis sent to
+      Saved to localStorage only. API calls routed via CORS proxy to
       <a href="https://integrate.api.nvidia.com" target="_blank" rel="noopener">integrate.api.nvidia.com</a>.
       Get a free key at <a href="https://build.nvidia.com" target="_blank" rel="noopener">build.nvidia.com</a>.
     </p>
   </div>
 
-  <!-- Model selector -->
+  <!-- Model -->
   <div class="card">
     <p class="card-label">Model</p>
     <div class="model-grid">
-
       <div class="model-chip">
         <input type="radio" name="model" id="m-nemotron" value="nemotron" checked />
         <label for="m-nemotron">
           <span class="m-name">Nemotron Nano</span>
           <span class="m-desc">nvidia-nemotron-nano-9b-v2</span>
-          <span class="badge badge-fast">⚡ Fast</span>
+          <span class="badge badge-fast">&#9889; Fast</span>
         </label>
       </div>
-
       <div class="model-chip">
         <input type="radio" name="model" id="m-cosmos" value="cosmos" />
         <label for="m-cosmos">
           <span class="m-name">Cosmos Reason2</span>
-          <span class="m-desc">cosmos-reason2-8b</span>
-          <span class="badge badge-deep">🔍 Deep</span>
+          <span class="m-desc">cosmos-reason2-8b &middot; VLM</span>
+          <span class="badge badge-deep">&#128269; Deep</span>
         </label>
       </div>
-
       <div class="model-chip">
         <input type="radio" name="model" id="m-both" value="both" />
         <label for="m-both">
           <span class="m-name">Both</span>
-          <span class="m-desc">Reason → Summarize</span>
-          <span class="badge badge-both">🔄 Pipeline</span>
+          <span class="m-desc">Reason &rarr; Summarize</span>
+          <span class="badge badge-both">&#128260; Pipeline</span>
         </label>
       </div>
-
     </div>
+    <p id="vlmNotice" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:8px 12px;">
+      &#9888;&#65039; <strong>Video file mode:</strong> Cosmos&nbsp;Reason2&nbsp;8B (VLM) will always handle frame analysis &mdash;
+      Nemotron&nbsp;Nano is text-only and cannot process video frames directly.
+      Selecting <em>Nemotron</em> will automatically switch to Cosmos for this step.
+    </p>
+  </div>
+
+  <!-- Keyword search -->
+  <div class="card">
+    <p class="card-label">
+      Keyword Search
+      <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#aaa;">&mdash; optional</span>
+    </p>
+    <div class="kw-row">
+      <input type="text" id="keywords"
+             placeholder="e.g.  artificial intelligence, climate, Tesla, neural networks"
+             autocomplete="off" />
+    </div>
+    <p class="hint">
+      Comma-separated topics. The AI will check whether each is discussed and at which timestamps.
+    </p>
   </div>
 
   <!-- Submit -->
   <div class="submit-row">
-    <button class="btn btn-primary" id="summarizeBtn" onclick="run()">
-      Summarize →
-    </button>
+    <button class="btn btn-primary" id="summarizeBtn" onclick="run()">Analyse &amp; Summarize &rarr;</button>
     <div class="status-wrap" id="statusWrap">
       <div class="spinner"></div>
-      <span id="statusText">Working…</span>
+      <span id="statusText">Working&hellip;</span>
     </div>
   </div>
 
-  <!-- Error -->
   <div class="error-box" id="errorBox"></div>
 
   <!-- Results -->
@@ -593,23 +464,30 @@
 
     <div class="video-meta" id="videoMeta">
       <img class="thumb" id="thumb" src="" alt="" />
-      <div class="video-info">
-        <p class="v-title" id="vTitle"></p>
+      <div>
+        <p class="v-title"   id="vTitle"></p>
         <p class="v-channel" id="vChannel"></p>
       </div>
     </div>
 
     <div class="steps">
-      <div class="step" id="s1"><div class="step-icon">1</div> Extract</div>
-      <span class="step-sep">›</span>
-      <div class="step" id="s2"><div class="step-icon">2</div> Analyze</div>
-      <span class="step-sep">›</span>
-      <div class="step" id="s3"><div class="step-icon">3</div> Summarize</div>
+      <div class="step" id="s1"><div class="step-icon">1</div>&nbsp;Source</div>
+      <span class="step-sep">&rsaquo;</span>
+      <div class="step" id="s2"><div class="step-icon">2</div>&nbsp;Analyse</div>
+      <span class="step-sep">&rsaquo;</span>
+      <div class="step" id="s3"><div class="step-icon">3</div>&nbsp;Summary</div>
     </div>
+
+    <div class="kw-results" id="kwResults">
+      <p class="kw-results-label">Keyword Analysis</p>
+      <div class="kw-list" id="kwList"></div>
+    </div>
+
+    <div class="gist-box" id="gistBox"></div>
 
     <div class="think-block" id="thinkBlock">
       <div class="think-header" onclick="toggleThink()">
-        <span class="think-arrow" id="thinkArrow">▶</span>
+        <span class="think-arrow" id="thinkArrow">&#9654;</span>
         <span>Model reasoning trace</span>
       </div>
       <div class="think-body" id="thinkBody"></div>
@@ -617,25 +495,7 @@
 
     <div class="summary-out" id="summaryOut"></div>
 
-    <div class="metrics-row" id="metricsRow">
-      <div class="metric">
-        <span class="metric-label">Total Time</span>
-        <span class="metric-value" id="metricTime">—</span>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Cache Status</span>
-        <span class="metric-value" id="metricCache">—</span>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Estimated Tokens</span>
-        <span class="metric-value" id="metricTokens">—</span>
-      </div>
-    </div>
-
     <div class="action-row" id="actionRow">
-      <button class="btn btn-ghost" onclick="copySummary()">Copy</button>
-      <button class="btn btn-ghost" onclick="resetUI()">New video</button>
-    </div>
       <button class="btn btn-ghost" onclick="copySummary()">Copy</button>
       <button class="btn btn-ghost" onclick="resetUI()">New video</button>
     </div>
@@ -645,840 +505,651 @@
   <footer>
     Built on the
     <a href="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization" target="_blank" rel="noopener">
-      NVIDIA Video Search &amp; Summarization Blueprint
-    </a>
-    &nbsp;·&nbsp;
+      NVIDIA Video Search &amp; Summarization Blueprint</a>
+    &nbsp;&middot;&nbsp;
     <a href="https://robertn01.github.io/Rob-IT/" target="_blank" rel="noopener">robertn01.github.io/Rob-IT</a>
   </footer>
-
-</div><!-- /.wrap -->
+</div>
 
 <script>
-/* ────────────────────────────────────────────────────────────────
-   Constants — model IDs match NVIDIA VSS Blueprint deployments
-   ──────────────────────────────────────────────────────────────── */
-const API_BASE = "https://integrate.api.nvidia.com/v1";
+/* ===================================================================
+   CONSTANTS
+   =================================================================== */
+// NVIDIA's API has no CORS headers for browser origins, so calls are proxied.
+// corsproxy.io free plan blocks large JSON bodies (base64 image frames), so
+// we maintain a waterfall: try each proxy/direct in order until one works.
+const NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
+const PROXY_LIST = [
+  // 1. corsproxy.io — reliable for text-only payloads
+  u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+  // 2. allorigins raw — alternative proxy (GET-forwards but also passes POST)
+  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  // 3. Direct — works if NVIDIA ever enables CORS, or in environments without restrictions
+  u => u,
+];
+
 const MODEL_ID = {
   nemotron: "nvidia/nvidia-nemotron-nano-9b-v2",
   cosmos:   "nvidia/cosmos-reason2-8b",
 };
 
-// Optimized parameters for faster API responses
-const API_CONFIG = {
-  nemotron: {
-    max_tokens: 1024,       // Reduced from 1536 for faster response
-    temperature: 0.15,       // Slightly lower for consistency
-    top_p: 0.8,
-    timeout: 30000,          // 30s timeout
-  },
-  cosmos: {
-    max_tokens: 1280,        // Slightly more for reasoning
-    temperature: 0.18,
-    top_p: 0.85,
-    timeout: 35000,          // 35s timeout
-  },
-};
-
-// Metrics tracking
-const METRICS = {
-  cacheHits: 0,
-  cacheMisses: 0,
-  totalTokens: 0,
-  startTime: null,
-  reset() { this.cacheHits = 0; this.cacheMisses = 0; this.totalTokens = 0; this.startTime = null; }
-};
-
-// Cache management
-const REQUEST_CACHE = (() => {
-  const CACHE_KEY_PREFIX = "vs_cache_";
-  const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-  const MAX_CACHED_ITEMS = 10;
-
-  return {
-    generateKey(videoHash, model) {
-      return `${CACHE_KEY_PREFIX}${videoHash}_${model}`;
-    },
-
-    async getVideoHash(file) {
-      const buffer = await file.slice(0, 1024 * 1024).arrayBuffer(); // First 1MB
-      const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-    },
-
-    get(key) {
-      try {
-        const cached = localStorage.getItem(key);
-        if (!cached) return null;
-        const { result, timestamp } = JSON.parse(cached);
-        if (Date.now() - timestamp > CACHE_TTL) {
-          localStorage.removeItem(key);
-          return null;
-        }
-        console.info(`[Cache] ✓ Hit for ${key.substring(0, 20)}...`);
-        return result;
-      } catch {
-        return null;
-      }
-    },
-
-    set(key, result) {
-      try {
-        // Enforce cache limit
-        const keys = Object.keys(localStorage).filter(k => k.startsWith(CACHE_KEY_PREFIX));
-        if (keys.length >= MAX_CACHED_ITEMS) {
-          const oldest = keys.reduce((min, k) => {
-            const t = JSON.parse(localStorage.getItem(k) || "{}").timestamp || 0;
-            return t < (JSON.parse(localStorage.getItem(min) || "{}").timestamp || Infinity) ? k : min;
-          });
-          localStorage.removeItem(oldest);
-        }
-
-        localStorage.setItem(key, JSON.stringify({ result, timestamp: Date.now() }));
-        console.info(`[Cache] ✓ Stored ${key.substring(0, 20)}...`);
-      } catch (e) {
-        console.warn(`[Cache] Storage error: ${e.message}`);
-      }
-    },
-
-    clear() {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith(CACHE_KEY_PREFIX));
-      keys.forEach(k => localStorage.removeItem(k));
-      console.info(`[Cache] ✓ Cleared ${keys.length} items`);
-    },
-  };
-})();
-
-const CAPTION_AGG_PROMPT =
-  "Aggregate the following captions in the format " +
-  "**start_timestamp–end_timestamp** event_description. " +
-  "If any two adjacent timestamps are within a few tenths of a second " +
-  "and the event creates a continuous scene, merge them into " +
-  "**start_timestamp1–end_timestamp2** event_description. " +
-  "Make sure the timestamp range encloses the entire event.";
-
-const SUMMARY_AGG_PROMPT =
-  "Given the reasoning analysis below, produce a clean, concise, well-structured " +
-  "final summary a reader can scan in under a minute. " +
-  "Use short paragraphs and bullet points where helpful.";
-
-/* ────────────────────────────────────────────────────────────────
-   Loading video — perimeter animation
-   The video widget travels clockwise around the four edges of the
-   viewport: top → right → bottom → left → repeat.
-   ──────────────────────────────────────────────────────────────── */
-const VID_W = 220;   // px — widget width
-const VID_H = 124;   // px — widget height (≈16:9)
-const SPEED = 160;   // px per second along the perimeter
-
-let _rafId    = null;
-let _distance = 0;   // total px traveled along the perimeter
-let _lastTs   = null;
+/* ===================================================================
+   LOADING VIDEO — perimeter animation
+   =================================================================== */
+const VID_W = 220, VID_H = 124, SPEED = 160;
+let _rafId = null, _dist = 0, _lastTs = null;
 
 function perimeterPos(d) {
-  // Returns {x, y} for distance d along the clockwise perimeter,
-  // keeping the widget fully inside the viewport.
-  const W = window.innerWidth  - VID_W;
-  const H = window.innerHeight - VID_H;
-  const perim = 2 * (W + H);
-  const t = ((d % perim) + perim) % perim; // normalise
-
-  if (t < W)              return { x: t,         y: 0 };           // top edge →
-  if (t < W + H)          return { x: W,          y: t - W };      // right edge ↓
-  if (t < 2 * W + H)      return { x: W - (t - W - H), y: H };     // bottom edge ←
-  /* left edge ↑ */       return { x: 0,          y: H - (t - 2*W - H) };
+  const W = window.innerWidth - VID_W, H = window.innerHeight - VID_H;
+  const p = 2 * (W + H), t = ((d % p) + p) % p;
+  if (t < W)       return { x: t,         y: 0          };
+  if (t < W + H)   return { x: W,          y: t - W      };
+  if (t < 2*W + H) return { x: W-(t-W-H), y: H          };
+                   return { x: 0,          y: H-(t-2*W-H) };
 }
 
 function tickLoading(ts) {
-  if (_lastTs !== null) {
-    _distance += SPEED * (ts - _lastTs) / 1000;
-  }
+  if (_lastTs !== null) _dist += SPEED * (ts - _lastTs) / 1000;
   _lastTs = ts;
-
-  const { x, y } = perimeterPos(_distance);
+  const { x, y } = perimeterPos(_dist);
   const el = document.getElementById("loadingVideo");
-  el.style.left = x + "px";
-  el.style.top  = y + "px";
-
+  el.style.left = x + "px"; el.style.top = y + "px";
   _rafId = requestAnimationFrame(tickLoading);
 }
 
 function startLoadingVideo() {
   const wrap = document.getElementById("loadingVideo");
   const vid  = document.getElementById("loadingVid");
-
-  // Start from a random position on the perimeter so it doesn't
-  // always appear from the same corner.
-  const W = window.innerWidth  - VID_W;
-  const H = window.innerHeight - VID_H;
-  _distance = Math.random() * 2 * (W + H);
-  _lastTs   = null;
-
-  vid.currentTime = 0;
-  vid.play().catch(() => {});  // autoplay may need a user gesture; catch silently
-
+  const W = window.innerWidth - VID_W, H = window.innerHeight - VID_H;
+  _dist = Math.random() * 2 * (W + H); _lastTs = null;
+  vid.currentTime = 0; vid.play().catch(() => {});
   wrap.style.display = "block";
-  // Trigger CSS transition on next frame
   requestAnimationFrame(() => wrap.classList.add("visible"));
-
   _rafId = requestAnimationFrame(tickLoading);
 }
 
 function stopLoadingVideo() {
   if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
-
   const wrap = document.getElementById("loadingVideo");
   const vid  = document.getElementById("loadingVid");
-
   wrap.classList.remove("visible");
-  // Hide after fade-out transition (400 ms)
-  setTimeout(() => {
-    wrap.style.display = "none";
-    vid.pause();
-  }, 450);
+  setTimeout(() => { wrap.style.display = "none"; vid.pause(); }, 450);
 }
 
-/* ────────────────────────────────────────────────────────────────
-   Utilities
-   ──────────────────────────────────────────────────────────────── */
-function getVideoFile() {
-  const input = document.getElementById("videoFile");
-  return input.files && input.files[0] || null;
+/* ===================================================================
+   INPUT TABS
+   =================================================================== */
+let _inputMode = "url";
+let _uploadedFile = null;
+
+function switchTab(mode) {
+  _inputMode = mode;
+  document.getElementById("tabUrl").classList.toggle("active",    mode === "url");
+  document.getElementById("tabUpload").classList.toggle("active", mode === "upload");
+  document.getElementById("paneUrl").classList.toggle("show",     mode === "url");
+  document.getElementById("paneUpload").classList.toggle("show",  mode === "upload");
+  // Show/hide the VLM notice on the model card
+  const notice = document.getElementById("vlmNotice");
+  if (notice) notice.style.display = mode === "upload" ? "block" : "none";
 }
 
-function step(n, state) {
-  const el = document.getElementById("s" + n);
-  el.className = "step" + (state ? " " + state : "");
-  if (state === "done") el.querySelector(".step-icon").textContent = "✓";
+function onFileChosen(input) {
+  const file = input.files[0];
+  if (!file) return;
+  _uploadedFile = file;
+  const fn = document.getElementById("uploadFilename");
+  fn.textContent = "✓ " + file.name + "  (" + (file.size / 1e6).toFixed(1) + " MB)";
+  fn.classList.add("show");
 }
 
-function setStatus(msg) {
-  const w = document.getElementById("statusWrap");
-  const t = document.getElementById("statusText");
-  if (msg) { t.textContent = msg; w.classList.add("show"); }
-  else      { w.classList.remove("show"); }
-}
-
-function showErr(msg) {
-  const el = document.getElementById("errorBox");
-  el.textContent = msg;
-  el.classList.add("show");
-}
-function clearErr() {
-  document.getElementById("errorBox").classList.remove("show");
-}
-
-function toggleKey() {
-  const f = document.getElementById("apiKey");
-  f.type = f.type === "password" ? "text" : "password";
-}
-
-function toggleThink() {
-  const body  = document.getElementById("thinkBody");
-  const arrow = document.getElementById("thinkArrow");
-  const open  = body.classList.toggle("show");
-  arrow.classList.toggle("open", open);
-}
-
-function copySummary() {
-  const text = document.getElementById("summaryOut").textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = event.currentTarget;
-    btn.textContent = "Copied ✓";
-    setTimeout(() => (btn.textContent = "Copy"), 1800);
-  });
-}
-
-function resetUI() {
-  clearErr();
-  setStatus("");
-  stopLoadingVideo();
-  document.getElementById("results").classList.remove("show");
-  document.getElementById("summaryOut").textContent = "";
-  document.getElementById("summaryOut").classList.remove("streaming");
-  document.getElementById("videoMeta").classList.remove("show");
-  document.getElementById("thinkBlock").classList.remove("show");
-  document.getElementById("metricsRow").classList.remove("show");
-  document.getElementById("actionRow").classList.remove("show");
-  document.getElementById("videoFile").value = "";
-  [1,2,3].forEach(n => step(n, ""));
-}
-
-/* ────────────────────────────────────────────────────────────────
-   Local Video Processing — Extract frames & create description
-   ──────────────────────────────────────────────────────────────── */
-
-/**
- * Extract frames from a local video file (optimized)
- * Reduced to 3 frames for faster processing
- * @param {File} videoFile - The video file from input
- * @param {number} frameCount - Number of frames to extract (default 3 for speed)
- * @returns {Promise<Array<string>>} Array of base64-encoded frame images
- */
-async function extractFramesFromVideo(videoFile, frameCount = 3) {
+/* ===================================================================
+   FRAME EXTRACTION
+   Extracts evenly-spaced JPEG frames from a local video file using
+   the HTML5 Canvas API. Mirrors the frame-sampling approach in
+   video_understanding.py::_build_vlm_messages() (use_frame_images path).
+   =================================================================== */
+function extractFrames(file, count) {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
+    video.muted = true; video.playsInline = true;
+    const blobUrl = URL.createObjectURL(file);
+    video.src = blobUrl;
+    // Keep frames small: 320×180 at quality 0.4 ≈ 8–12 KB each as base64.
+    // 4 frames × ~10 KB = ~40 KB total — well within free CORS proxy limits.
+    // (512×288 at 0.75 = ~60–120 KB each, which triggers corsproxy.io's 403.)
     const canvas = document.createElement("canvas");
+    canvas.width = 320; canvas.height = 180;
     const ctx = canvas.getContext("2d");
-    const frames = [];
-    let framesExtracted = 0;
 
-    const url = URL.createObjectURL(videoFile);
-    video.src = url;
-    video.crossOrigin = "anonymous";
-
-    video.onloadedmetadata = () => {
-      console.info(`[Extract] Video loaded: ${(videoFile.size / 1024 / 1024).toFixed(2)} MB, duration: ${video.duration.toFixed(1)}s`);
-      
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      // Sample frames at 25%, 50%, 75% instead of evenly distributed
-      const samplePoints = [];
-      for (let i = 1; i <= frameCount; i++) {
-        samplePoints.push((i / (frameCount + 1)) * video.duration);
+    video.addEventListener("loadedmetadata", async () => {
+      const dur = isFinite(video.duration) && video.duration > 0 ? video.duration : 60;
+      const frames = [];
+      for (let i = 0; i < count; i++) {
+        const t = i === 0 ? 0.5 : (dur / (count - 1)) * i;
+        video.currentTime = t;
+        await new Promise(r => { video.onseeked = r; setTimeout(r, 1000); });
+        ctx.drawImage(video, 0, 0, 320, 180);
+        frames.push(canvas.toDataURL("image/jpeg", 0.4).split(",")[1]);
       }
-      let sampleIndex = 0;
+      URL.revokeObjectURL(blobUrl);
+      resolve(frames);
+    });
 
-      video.onended = () => {
-        URL.revokeObjectURL(url);
-        console.info(`[Extract] ✓ Extracted ${framesExtracted} frames in ${((canvas.width * canvas.height) / 1024 / 1024).toFixed(2)} MP resolution`);
-        resolve(frames);
-      };
-
-      const extractNextFrame = () => {
-        if (sampleIndex >= samplePoints.length) {
-          video.pause();
-          video.currentTime = 0;
-          return;
-        }
-        video.currentTime = samplePoints[sampleIndex];
-        sampleIndex++;
-      };
-
-      video.onseeked = () => {
-        ctx.drawImage(video, 0, 0);
-        // Reduce JPEG quality to 50% for faster transmission (5-30KB per frame)
-        const base64 = canvas.toDataURL("image/jpeg", 0.5);
-        frames.push({ timestamp: video.currentTime, data: base64 });
-        framesExtracted++;
-        const estimatedSize = (base64.length / 1024).toFixed(1);
-        console.info(`[Extract] Frame ${framesExtracted}/${frameCount} at ${video.currentTime.toFixed(1)}s (~${estimatedSize} KB)`);
-        extractNextFrame();
-      };
-
-      extractNextFrame();
-    };
-
-    video.onerror = (err) => {
-      URL.revokeObjectURL(url);
-      reject(new Error(`Failed to load video: ${err.message || 'Unknown error'}`));
-    };
-
+    video.addEventListener("error", () => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error("Could not load the video file. Please try MP4 or WebM format."));
+    });
     video.load();
   });
 }
 
-/**
- * Generate a video description from extracted frames
- * Uses the video filename and duration as context
- */
-async function generateVideoDescription(videoFile, frames) {
-  console.info(`[Description] Processing ${frames.length} frames for API...`);
-  
-  const videoName = videoFile.name.replace(/\.[^.]+$/, ""); // Remove extension
-  
-  // Build content array with text + images for vision models
-  const contentArray = [
-    {
-      type: "text",
-      text: `Video: ${videoName}\nFrames analyzed: ${frames.length}\n\nPlease analyze these video frames:`,
-    },
-  ];
-
-  // Add each frame as an image to the content array
-  frames.forEach((f, i) => {
-    contentArray.push({
-      type: "image_url",
-      image_url: {
-        url: f.data, // Base64-encoded image (data:image/jpeg;base64,...)
-      },
-    });
-    contentArray.push({
-      type: "text",
-      text: `Frame ${i + 1} @ ${f.timestamp.toFixed(1)}s`,
-    });
-  });
-
-  console.info(`[Description] ✓ Built content array with ${frames.length} images + text`);
-  return contentArray;
+/* ===================================================================
+   YOUTUBE HELPERS
+   =================================================================== */
+function getVideoId(url) {
+  for (const p of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/embed\/([A-Za-z0-9_-]{11})/,
+    /\/shorts\/([A-Za-z0-9_-]{11})/,
+  ]) { const m = url.match(p); if (m) return m[1]; }
+  return null;
 }
 
+async function fetchTranscript(videoId) {
+  const mkUrl = k =>
+    "https://www.youtube.com/api/timedtext?v=" + videoId + "&lang=en" +
+    (k === "asr" ? "&kind=asr" : "") + "&fmt=json3";
 
-/* ────────────────────────────────────────────────────────────────
-   Video Metadata Display (local file info)
-   ──────────────────────────────────────────────────────────────── */
-function displayVideoInfo(videoFile) {
-  const fileName = videoFile.name;
-  const fileSizeMB = (videoFile.size / 1024 / 1024).toFixed(2);
-  const fileType = videoFile.type || "unknown";
-  
-  document.getElementById("vTitle").textContent = fileName;
-  document.getElementById("vChannel").textContent = `${fileSizeMB} MB • ${fileType}`;
-  document.getElementById("videoMeta").classList.add("show");
-  
-  console.info(`[Video] File: ${fileName} (${fileSizeMB} MB)`);
-}
-
-/* ────────────────────────────────────────────────────────────────
-   NVIDIA API — streaming with caching, retries, and optimizations
-   ──────────────────────────────────────────────────────────────── */
-async function nvidiaChatStream(apiKey, model, messages, onDelta, cacheKey = null) {
-  const url = `${API_BASE}/chat/completions`;
-  const config = API_CONFIG[model === MODEL_ID.nemotron ? 'nemotron' : 'cosmos'] || API_CONFIG.nemotron;
-
-  // Check cache first
-  if (cacheKey) {
-    const cached = REQUEST_CACHE.get(cacheKey);
-    if (cached) {
-      // Simulate streaming from cache
-      onDelta(cached);
-      METRICS.cacheHits++;
-      const tokensEst = Math.ceil(cached.length / 4);
-      METRICS.totalTokens += tokensEst;
-      console.info(`[Cache] ✓ HIT for ${model.split('/')[1]} (≈${tokensEst} tokens)`);
-      return cached;
-    }
-  }
-
-  console.info(`[API] Calling ${model.split('/')[1]}... (max_tokens: ${config.max_tokens})`);
-  
-  const maxRetries = 2;
-  let lastError;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), config.timeout);
-
-      let res;
+  async function tryProxy(raw) {
+    for (const u of [
+      "https://corsproxy.io/?url=" + encodeURIComponent(raw),
+      "https://api.allorigins.win/raw?url=" + encodeURIComponent(raw),
+    ]) {
       try {
-        res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            max_tokens: config.max_tokens,
-            temperature: config.temperature,
-            top_p: config.top_p,
-            stream: true,
-          }),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
+        const r = await fetch(u, { signal: AbortSignal.timeout(9000) });
+        if (!r.ok) continue;
+        const body = await r.text();
+        if (!body || body.length < 20) continue;
+        const result = parseEvents(JSON.parse(body));
+        if (result) return result;
+      } catch { /* try next */ }
+    }
+    return null;
+  }
+  return (await tryProxy(mkUrl("manual"))) || (await tryProxy(mkUrl("asr"))) || null;
+}
+
+function parseEvents(data) {
+  if (!data || !Array.isArray(data.events)) return null;
+  const lines = [];
+  for (const ev of data.events) {
+    if (!ev.segs) continue;
+    const t = ((ev.tStartMs || 0) / 1000).toFixed(1);
+    const txt = ev.segs.map(s => s.utf8 || "").join("").replace(/\n/g, " ").trim();
+    if (txt) lines.push("<" + t + "> " + txt);
+  }
+  return lines.length ? lines.join("\n") : null;
+}
+
+async function fetchMeta(videoId) {
+  try {
+    const r = await fetch(
+      "https://www.youtube.com/oembed?url=https://youtube.com/watch?v=" + videoId + "&format=json",
+      { signal: AbortSignal.timeout(6000) }
+    );
+    return r.ok ? r.json() : null;
+  } catch { return null; }
+}
+
+/* ===================================================================
+   NVIDIA API — proxy waterfall, non-streaming
+   Tries each proxy in PROXY_LIST until one succeeds. A 403 from a proxy
+   (not from NVIDIA) means the proxy rejected the request — move on.
+   A 4xx/5xx from NVIDIA itself is a real error — throw immediately.
+   =================================================================== */
+async function nvidiaChatCall(apiKey, model, messages) {
+  const body = JSON.stringify({ model, messages, max_tokens: 1400, temperature: 0.2, top_p: 0.7, stream: false });
+  const headers = { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" };
+
+  let lastErr = null;
+
+  for (let i = 0; i < PROXY_LIST.length; i++) {
+    const url = PROXY_LIST[i](NVIDIA_ENDPOINT);
+    const isDirect = (url === NVIDIA_ENDPOINT);
+    try {
+      const res = await fetch(url, { method: "POST", headers, body,
+        signal: AbortSignal.timeout(60000) });
+
+      // 403 from corsproxy/allorigins = proxy rejected content → try next
+      if (!isDirect && res.status === 403) {
+        lastErr = new Error("Proxy " + (i+1) + " rejected the request (403 — content restriction).");
+        continue;
       }
 
       if (!res.ok) {
-        let errorDetail = "";
-        try {
-          const txt = await res.text();
-          errorDetail = txt.slice(0, 300);
-          console.error(`[API] HTTP ${res.status}:`, errorDetail);
-        } catch {
-          console.error(`[API] HTTP ${res.status}`);
-        }
-
-        // Handle specific status codes
-        if (res.status === 401) {
-          throw new Error("Invalid NVIDIA API key. Get a free key at https://build.nvidia.com");
-        } else if (res.status === 429) {
-          if (attempt < maxRetries) {
-            const backoffMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
-            console.warn(`[API] Rate limited. Retrying in ${backoffMs}ms...`);
-            await new Promise(resolve => setTimeout(resolve, backoffMs));
-            continue;
-          }
-          throw new Error("Rate limit exceeded. Please wait and try again.");
-        } else if (res.status >= 500) {
-          if (attempt < maxRetries) {
-            const backoffMs = 500 * Math.pow(2, attempt);
-            console.warn(`[API] Server error. Retrying in ${backoffMs}ms...`);
-            await new Promise(resolve => setTimeout(resolve, backoffMs));
-            continue;
-          }
-          throw new Error("NVIDIA API server error. Please try again later.");
-        } else {
-          throw new Error(`NVIDIA API error (${res.status})`);
-        }
+        // Real NVIDIA error — parse and throw immediately
+        let msg = "NVIDIA API error " + res.status;
+        try { const j = await res.json(); msg += ": " + JSON.stringify(j).slice(0,300); }
+        catch { msg += ": " + (await res.text().catch(()=>"")).slice(0,200); }
+        throw new Error(msg);
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let full = "";
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || "";
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          for (const line of decoder.decode(value, { stream: true }).split("\n")) {
-            if (!line.startsWith("data: ")) continue;
-            const payload = line.slice(6).trim();
-            if (payload === "[DONE]") break;
-            try {
-              const delta = JSON.parse(payload).choices?.[0]?.delta?.content || "";
-              if (delta) { 
-                full += delta; 
-                onDelta(full); 
-              }
-            } catch { /* skip malformed chunks */ }
-          }
-        }
-      } catch (streamErr) {
-        const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
-        console.error(`[API] Stream error: ${errMsg}`);
-        throw new Error(`Error processing API stream: ${errMsg}`);
+    } catch (e) {
+      // Network / CORS / timeout errors on direct call or proxy → try next
+      if (e.name === "TypeError" || e.name === "AbortError" || /fetch|network|CORS/i.test(e.message)) {
+        lastErr = e;
+        continue;
       }
-
-      // Cache successful response
-      if (cacheKey) {
-        REQUEST_CACHE.set(cacheKey, full);
-      }
-
-      const tokensEst = Math.ceil(full.length / 4); // Rough estimate
-      METRICS.cacheMisses++;
-      METRICS.totalTokens += tokensEst;
-      console.info(`[API] ✓ Complete (≈${tokensEst} tokens, attempt ${attempt + 1}/${maxRetries + 1})`);
-      return full;
-
-    } catch (err) {
-      lastError = err;
-      if (attempt < maxRetries) {
-        const backoffMs = 500 * Math.pow(2, attempt);
-        console.warn(`[API] Error (attempt ${attempt + 1}/${maxRetries + 1}): ${err.message}. Retrying in ${backoffMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
-      }
+      throw e; // Real NVIDIA errors rethrown immediately
     }
   }
 
-  console.error(`[API] Failed after ${maxRetries + 1} attempts`);
-  throw lastError || new Error("API request failed");
+  // All proxies exhausted
+  throw new Error(
+    "Could not reach the NVIDIA API through any available route.\n" +
+    "Last error: " + (lastErr?.message || "unknown") + "\n\n" +
+    "Tips: check your API key, try a YouTube URL instead of a file upload, " +
+    "or open the browser console for more detail."
+  );
 }
 
-/*
- * Parse <think>…</think> blocks from cosmos-reason2-8b.
- * Mirrors video_understanding.py::_parse_thinking_from_content()
- */
+/* ===================================================================
+   TYPEWRITER EFFECT
+   =================================================================== */
+async function typewrite(el, text) {
+  el.textContent = "";
+  el.classList.add("typing");
+  const chunk = 4;
+  for (let i = 0; i < text.length; i += chunk) {
+    el.textContent += text.slice(i, i + chunk);
+    await new Promise(r => setTimeout(r, 12));
+  }
+  el.classList.remove("typing");
+}
+
+/* ===================================================================
+   PARSING HELPERS
+   =================================================================== */
+// Mirrors video_understanding.py::_parse_thinking_from_content()
 function splitThinking(text) {
   if (!text.includes("<think>")) return { thinking: null, answer: text };
   const ts = text.indexOf("<think>") + 7;
   const te = text.indexOf("</think>");
   if (te < ts) return { thinking: null, answer: text };
   const thinking = text.slice(ts, te).trim();
-  let   after    = text.slice(te + 8).trim();
-  if (after.startsWith("<answer>") && after.includes("</answer>")) {
+  let after = text.slice(te + 8).trim();
+  if (after.startsWith("<answer>") && after.includes("</answer>"))
     after = after.slice(8, after.indexOf("</answer>")).trim();
-  }
   return { thinking, answer: after || text };
 }
 
-/* ────────────────────────────────────────────────────────────────
-   Main pipeline
-   ──────────────────────────────────────────────────────────────── */
+function extractGist(text) {
+  const m = text.match(/GIST:\s*\n([\s\S]*?)(?:\n\nKEY POINTS:|\n\nSUMMARY:|\n\nTONE:|\n\nKEYWORD|$)/i);
+  return m ? m[1].trim() : null;
+}
+
+function extractKeywordSection(text) {
+  const m = text.match(/KEYWORD SEARCH:\s*\n([\s\S]*?)(?:\n\n[A-Z]{3,}:|$)/i);
+  return m ? m[1].trim() : null;
+}
+
+function parseKeywordResults(kwSection, keywords) {
+  return keywords.map(kw => {
+    const safe = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = kwSection
+      ? kwSection.match(new RegExp("[\\-\u2022]?\\s*" + safe + "\\s*:([^\n]*)", "i"))
+      : null;
+    const raw   = m ? m[1].trim() : "";
+    const found = /\u2713|yes|mention|discuss|present|appear|cover/i.test(raw);
+    return { keyword: kw, found, context: raw.replace(/^[\u2713\u2717\-]?\s*/, "").trim() };
+  });
+}
+
+function transcriptTimestamps(transcript, kw) {
+  if (!transcript) return [];
+  const safe = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re   = new RegExp(safe, "gi");
+  const seen = new Set();
+  for (const line of transcript.split("\n")) {
+    re.lastIndex = 0;
+    if (!re.test(line)) continue;
+    const tm = line.match(/^<(\d+\.?\d*)>/);
+    if (tm) {
+      const s = parseFloat(tm[1]);
+      seen.add(Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2,"0"));
+    }
+  }
+  return [...seen].slice(0, 6);
+}
+
+/* ===================================================================
+   PROMPT BUILDERS
+   Adapted from prompt.py INIT_SUMMARIZE_PROMPT + VSS_SUMMARIZE_PROMPT
+   =================================================================== */
+function buildSystem(hasKw) {
+  let s = `You are a sharp, direct video analyst. Respond in this exact format:
+
+GIST:
+[Exactly one sentence — what is this video fundamentally about?]
+
+KEY POINTS:
+\u2022 [point 1]
+\u2022 [point 2]
+\u2022 [point 3]
+(3\u20135 bullets, each under 20 words)
+
+TONE: [one or two words, e.g. Educational, Tutorial, News, Entertainment]
+
+SUMMARY:
+[2\u20134 concise paragraphs. Be specific and direct. No filler.]`;
+  if (hasKw) s += `
+
+KEYWORD SEARCH:
+For every keyword provided, state whether it is mentioned or discussed:
+\u2022 \u2713 [keyword]: Yes \u2014 [one-sentence context and when/where it appears]
+\u2022 \u2717 [keyword]: Not mentioned`;
+  return s;
+}
+
+function buildTranscriptUser(transcript, keywords) {
+  let msg = "Analyse the following video transcript.\n\n";
+  if (keywords.length) msg += "Keywords to search for: " + keywords.join(", ") + "\n\n";
+  msg += "Transcript:\n" + transcript.slice(0, 14000);
+  return msg;
+}
+
+function buildFrameContent(frames, keywords) {
+  let text = "The following " + frames.length + " images are evenly-spaced frames from a video. ";
+  text += "Analyse the video content based on these frames.\n\n";
+  if (keywords.length) text += "Keywords to search for: " + keywords.join(", ") + "\n\n";
+  text += "Provide your full analysis per the required format.";
+  return [
+    { type: "text", text: text },
+    ...frames.map(f => ({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + f } }))
+  ];
+}
+
+function appendCosmosReasoning(content) {
+  // cosmos-reason2-8b: append <think> instruction to user message
+  // (matches video_understanding.py is_cosmos_reason2 branch)
+  const suffix = "\n\nAnswer using this format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your full answer immediately after the </think> tag.";
+  if (typeof content === "string") return content + suffix;
+  const arr = [...content];
+  arr[0] = { ...arr[0], text: arr[0].text + suffix };
+  return arr;
+}
+
+/* ===================================================================
+   UI HELPERS
+   =================================================================== */
+function step(n, state) {
+  const el = document.getElementById("s" + n);
+  el.className = "step" + (state ? " " + state : "");
+  if (state === "done") el.querySelector(".step-icon").textContent = "\u2713";
+}
+function setStatus(msg) {
+  const w = document.getElementById("statusWrap");
+  document.getElementById("statusText").textContent = msg;
+  w.classList.toggle("show", !!msg);
+}
+function showErr(msg) {
+  const el = document.getElementById("errorBox");
+  el.textContent = msg; el.classList.add("show");
+}
+function clearErr() { document.getElementById("errorBox").classList.remove("show"); }
+function toggleKey() {
+  const f = document.getElementById("apiKey");
+  f.type = f.type === "password" ? "text" : "password";
+}
+function toggleThink() {
+  const body  = document.getElementById("thinkBody");
+  const arrow = document.getElementById("thinkArrow");
+  arrow.classList.toggle("open", body.classList.toggle("show"));
+}
+function copySummary() {
+  const gist = document.getElementById("gistBox").textContent;
+  const body = document.getElementById("summaryOut").textContent;
+  navigator.clipboard.writeText([gist, body].filter(Boolean).join("\n\n")).then(() => {
+    const btn = event.currentTarget;
+    btn.textContent = "Copied \u2713";
+    setTimeout(() => btn.textContent = "Copy", 1800);
+  });
+}
+function resetUI() {
+  clearErr(); setStatus(""); stopLoadingVideo();
+  ["results","videoMeta","thinkBlock","actionRow","kwResults","gistBox"]
+    .forEach(id => document.getElementById(id).classList.remove("show"));
+  document.getElementById("summaryOut").textContent = "";
+  document.getElementById("summaryOut").classList.remove("typing");
+  document.getElementById("gistBox").textContent = "";
+  document.getElementById("videoUrl").value = "";
+  document.getElementById("kwList").innerHTML = "";
+  [1,2,3].forEach(n => step(n,""));
+}
+
+function renderKeywords(items, transcript) {
+  const list = document.getElementById("kwList");
+  list.innerHTML = "";
+  for (const item of items) {
+    const times = transcriptTimestamps(transcript, item.keyword);
+    const found = item.found || times.length > 0;
+    const row  = document.createElement("div"); row.className = "kw-item";
+    const pill = document.createElement("span");
+    pill.className = "kw-pill " + (found ? "found" : "miss");
+    pill.textContent = (found ? "\u2713 " : "\u2717 ") + item.keyword;
+    const ctx = document.createElement("span"); ctx.className = "kw-context";
+    if (found) {
+      let detail = item.context || "Mentioned in this video.";
+      if (times.length) detail += ' <span class="kw-ts">@ ' + times.join("  ") + "</span>";
+      ctx.innerHTML = detail;
+    } else {
+      ctx.textContent = "Not mentioned in this video.";
+    }
+    row.appendChild(pill); row.appendChild(ctx); list.appendChild(row);
+  }
+  document.getElementById("kwResults").classList.add("show");
+}
+
+/* ===================================================================
+   MAIN PIPELINE
+   =================================================================== */
 async function run() {
   clearErr();
-
-  const videoFile = getVideoFile();
-  const apiKey    = document.getElementById("apiKey").value.trim();
-  const modelVal  = document.querySelector('input[name="model"]:checked').value;
+  const apiKey   = document.getElementById("apiKey").value.trim();
+  const modelVal = document.querySelector('input[name="model"]:checked').value;
+  const kwRaw    = document.getElementById("keywords").value.trim();
+  const keywords = kwRaw ? kwRaw.split(",").map(k => k.trim()).filter(Boolean) : [];
 
   if (apiKey) localStorage.setItem("nv_key", apiKey);
-  const savedKey = apiKey || localStorage.getItem("nv_key") || "";
+  const key = apiKey || localStorage.getItem("nv_key") || "";
+  if (!key) { showErr("Please enter your NVIDIA API key."); return; }
 
-  if (!videoFile) {
-    showErr("Please select a video file to analyze.");
-    return;
-  }
-  if (!savedKey) {
-    showErr("Please enter your NVIDIA API key.");
-    return;
+  let videoId = null, transcript = null, frames = null;
+
+  if (_inputMode === "upload") {
+    if (!_uploadedFile) { showErr("Please choose a video file to upload."); return; }
+  } else {
+    const urlVal = document.getElementById("videoUrl").value.trim();
+    if (!urlVal) { showErr("Please enter a video URL."); return; }
+    videoId = getVideoId(urlVal);
+    if (!videoId && !/\.(mp4|webm|mov|avi|mkv)/i.test(urlVal)) {
+      showErr("Could not detect a YouTube video ID. Please paste a YouTube URL or a direct .mp4 link.");
+      return;
+    }
   }
 
-  // Validate file size (100 MB max)
-  const maxSize = 100 * 1024 * 1024;
-  if (videoFile.size > maxSize) {
-    showErr(`File too large (${(videoFile.size / 1024 / 1024).toFixed(1)} MB). Max size is 100 MB.`);
-    return;
-  }
-
-  /* UI reset */
+  // Reset UI
   document.getElementById("summarizeBtn").disabled = true;
   document.getElementById("results").classList.add("show");
   document.getElementById("summaryOut").textContent = "";
-  document.getElementById("summaryOut").classList.add("streaming");
-  document.getElementById("thinkBlock").classList.remove("show");
-  document.getElementById("actionRow").classList.remove("show");
-  document.getElementById("videoMeta").classList.remove("show");
-  [1,2,3].forEach(n => step(n, ""));
-
-  /* Start the loading animation */
+  document.getElementById("gistBox").textContent = "";
+  ["gistBox","thinkBlock","actionRow","videoMeta","kwResults"]
+    .forEach(id => document.getElementById(id).classList.remove("show"));
+  document.getElementById("kwList").innerHTML = "";
+  [1,2,3].forEach(n => step(n,""));
   startLoadingVideo();
 
   try {
-    /* ── Step 1: Extract frames ── */
-    METRICS.reset();
-    METRICS.startTime = performance.now();
-    
+    /* STEP 1 — gather source */
     step(1, "active");
-    setStatus("Extracting frames…");
 
-    displayVideoInfo(videoFile);
-
-    // Generate cache key based on video file hash
-    const videoHash = await REQUEST_CACHE.getVideoHash(videoFile);
-    const cacheKeyNemotron = REQUEST_CACHE.generateKey(videoHash, "nemotron");
-    const cacheKeyCosmos = REQUEST_CACHE.generateKey(videoHash, "cosmos");
-
-    // Optimized: extract only 3 frames instead of 5 for faster processing
-    const frames = await extractFramesFromVideo(videoFile, 3);
-    if (!frames || frames.length === 0) {
-      throw new Error("Failed to extract frames from video");
+    if (_inputMode === "upload") {
+      setStatus("Extracting frames from video\u2026");
+      frames = await extractFrames(_uploadedFile, 4); // 4 small frames ≈ 40 KB total
+      setStatus("Extracted " + frames.length + " frames \u2014 ready");
+    } else if (videoId) {
+      setStatus("Fetching transcript & metadata\u2026");
+      const [tx, meta] = await Promise.all([fetchTranscript(videoId), fetchMeta(videoId)]);
+      transcript = tx;
+      if (meta) {
+        document.getElementById("thumb").src = "https://img.youtube.com/vi/" + videoId + "/mqdefault.jpg";
+        document.getElementById("vTitle").textContent   = meta.title       || "";
+        document.getElementById("vChannel").textContent = meta.author_name || "";
+        document.getElementById("videoMeta").classList.add("show");
+      }
+      if (!transcript) {
+        transcript = meta
+          ? "[No captions. Video title: \"" + meta.title + "\" by " + meta.author_name + ".]"
+          : "[No transcript available.]";
+        setStatus("No captions found \u2014 using title context");
+      }
+    } else {
+      const urlVal = document.getElementById("videoUrl").value.trim();
+      transcript = "[Direct URL: " + urlVal + ". Summarise based on URL context.]";
     }
-
-    const videoDescription = await generateVideoDescription(videoFile, frames);
     step(1, "done");
 
-    const summaryEl = document.getElementById("summaryOut");
+    /* STEP 2 — AI analysis
+       IMPORTANT: Nemotron Nano 9B is a text-only LLM — it cannot accept
+       image frames. When the user has uploaded a video file, frames must
+       always be processed by Cosmos Reason2 (the VLM). Nemotron can still
+       be used as a text-only summarizer in the pipeline step that follows. */
+    step(2, "active");
+    const hasKw   = keywords.length > 0;
+    const sysMsg  = { role: "system", content: buildSystem(hasKw) };
+    let rawContent = frames ? buildFrameContent(frames, keywords) : buildTranscriptUser(transcript, keywords);
+    let rawResponse = "";
 
-    /* ── Step 2 / 3 depending on model choice ── */
-    if (modelVal === "nemotron") {
+    // If we have frames, Cosmos Reason2 must handle them — override Nemotron-only selection.
+    const effectiveModel = (frames && modelVal === "nemotron") ? "cosmos" : modelVal;
+    if (frames && modelVal === "nemotron") {
+      setStatus("Switching to Cosmos Reason2 8B \u2014 Nemotron is text-only\u2026");
+      await new Promise(r => setTimeout(r, 1200)); // let the user read the notice
+    }
+
+    if (effectiveModel === "nemotron") {
+      // Text-only path (transcript / URL context — no frames)
+      setStatus("Nemotron Nano 9B \u2014 analysing\u2026");
+      rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [sysMsg, { role:"user", content: rawContent }]);
       step(2, "done");
-      step(3, "active");
-      setStatus("Nemotron Nano 9B — summarising…");
 
-      await nvidiaChatStream(
-        savedKey, MODEL_ID.nemotron,
-        [
-          {
-            role: "system",
-            content:
-              "You are an expert video analyst and summarizer. " +
-              "Based on the video frames provided, " +
-              "produce a structured summary with clear headings and bullet points.",
-          },
-          {
-            role: "user",
-            content: [
-              ...videoDescription,
-              {
-                type: "text",
-                text: "Based on these video frames, provide a comprehensive summary " +
-                      "of what happens in the video, key actions, and important details.",
-              },
-            ],
-          },
-        ],
-        text => { summaryEl.textContent = text; },
-        cacheKeyNemotron
-      );
-      step(3, "done");
-
-    } else if (modelVal === "cosmos") {
-      step(2, "active");
-      setStatus("Cosmos Reason2 8B — analyzing…");
-
-      let cosmosOut = "";
-      await nvidiaChatStream(
-        savedKey, MODEL_ID.cosmos,
-        [
-          { role: "system", content: "You are an expert video analyst with deep reasoning capabilities." },
-          {
-            role: "user",
-            content: [
-              ...videoDescription,
-              {
-                type: "text",
-                text: "Analyze this video comprehensively. Describe what's happening, " +
-                      "identify key moments, and provide insights.\n\n" +
-                      "Answer using this format:\n\n" +
-                      "<think>\nYour detailed reasoning about the video.\n</think>\n\n" +
-                      "Write your analysis immediately after the </think> tag.",
-              },
-            ],
-          },
-        ],
-        raw => {
-          cosmosOut = raw;
-          const { thinking, answer } = splitThinking(raw);
-          if (thinking) {
-            document.getElementById("thinkBlock").classList.add("show");
-            document.getElementById("thinkBody").textContent = thinking;
-          }
-          summaryEl.textContent = answer;
-        },
-        cacheKeyCosmos
-      );
+    } else if (effectiveModel === "cosmos") {
+      // VLM path — handles both frames and text transcripts
+      setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
+      const cosmosContent = appendCosmosReasoning(rawContent);
+      rawResponse = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosContent }]);
+      const { thinking, answer } = splitThinking(rawResponse);
+      if (thinking) {
+        document.getElementById("thinkBlock").classList.add("show");
+        document.getElementById("thinkBody").textContent = thinking;
+      }
+      rawResponse = answer;
       step(2, "done");
-      step(3, "done");
 
     } else {
-      /* Pipeline: Cosmos analyze → Nemotron summarize */
-      step(2, "active");
-      setStatus("Cosmos Reason2 8B — analyzing…");
-
-      let cosmosOut = "";
-      await nvidiaChatStream(
-        savedKey, MODEL_ID.cosmos,
-        [
-          { role: "system", content: "You are an expert video analyst." },
-          {
-            role: "user",
-            content: [
-              ...videoDescription,
-              {
-                type: "text",
-                text: "Analyze what's happening in this video. Identify key events, " +
-                      "actions, and important details.\n\n" +
-                      "Format your response:\n\n" +
-                      "<think>\nYour analysis reasoning.\n</think>\n\n" +
-                      "Write your analysis immediately after the </think> tag.",
-              },
-            ],
-          },
-        ],
-        raw => {
-          cosmosOut = raw;
-          const { thinking, answer } = splitThinking(raw);
-          if (thinking) {
-            document.getElementById("thinkBlock").classList.add("show");
-            document.getElementById("thinkBody").textContent = thinking;
-          }
-          summaryEl.textContent = "Analysis complete — generating summary…";
-        },
-        cacheKeyCosmos
-      );
-
-      const { answer: analysis } = splitThinking(cosmosOut);
+      // Pipeline: Cosmos VLM analyses frames/transcript → Nemotron polishes text
+      setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
+      const cosmosContent = appendCosmosReasoning(rawContent);
+      const cosmosRaw = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosContent }]);
+      const { thinking, answer: analysis } = splitThinking(cosmosRaw);
+      if (thinking) {
+        document.getElementById("thinkBlock").classList.add("show");
+        document.getElementById("thinkBody").textContent = thinking;
+      }
       step(2, "done");
       step(3, "active");
-      summaryEl.textContent = "";
-      setStatus("Nemotron Nano 9B — summarising…");
-
-      await nvidiaChatStream(
-        savedKey, MODEL_ID.nemotron,
-        [
-          {
-            role: "system",
-            content:
-              "You are a concise expert summarizer. " +
-              "Create a crisp, well-structured summary from the analysis " +
-              "with clear headings and bullet points.",
-          },
-          {
-            role: "user",
-            content: SUMMARY_AGG_PROMPT + "\n\nAnalysis:\n" + analysis.slice(0, 10_000),
-          },
-        ],
-        text => { summaryEl.textContent = text; },
-        cacheKeyNemotron
-      );
-      step(3, "done");
+      // Nemotron receives only text at this point — no frames
+      setStatus("Nemotron Nano 9B \u2014 summarising\u2026");
+      rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [
+        sysMsg,
+        { role:"user", content:
+          "Refine the following analysis into the required output format.\n\n" +
+          (hasKw ? "Keywords: " + keywords.join(", ") + "\n\n" : "") +
+          "Analysis:\n" + analysis.slice(0, 10000) }
+      ]);
     }
 
-    /* Done */
-    const endTime = performance.now();
-    const totalTime = endTime - METRICS.startTime;
-    const totalRequests = METRICS.cacheHits + METRICS.cacheMisses;
-    
-    // Display metrics
-    document.getElementById("metricTime").textContent = `${(totalTime / 1000).toFixed(2)}s`;
-    
-    let cacheStatus = "—";
-    let cacheEl = document.getElementById("metricCache");
-    if (totalRequests > 0) {
-      const hitRate = ((METRICS.cacheHits / totalRequests) * 100).toFixed(0);
-      if (METRICS.cacheHits > 0 && METRICS.cacheMisses === 0) {
-        cacheStatus = `${METRICS.cacheHits} hit${METRICS.cacheHits > 1 ? 's' : ''}`;
-        cacheEl.className = "metric-value cache-hit";
-      } else if (METRICS.cacheHits > 0) {
-        cacheStatus = `${METRICS.cacheHits}H / ${METRICS.cacheMisses}M`;
-        cacheEl.className = "metric-value";
-      } else {
-        cacheStatus = `${METRICS.cacheMisses} miss${METRICS.cacheMisses > 1 ? 'es' : ''}`;
-        cacheEl.className = "metric-value cache-miss";
-      }
+    /* STEP 3 — render */
+    step(3, "active");
+    setStatus("Rendering\u2026");
+
+    if (hasKw) {
+      const kwSec = extractKeywordSection(rawResponse);
+      renderKeywords(parseKeywordResults(kwSec, keywords), transcript);
     }
-    cacheEl.textContent = cacheStatus;
-    document.getElementById("metricTokens").textContent = `≈${METRICS.totalTokens.toLocaleString()}`;
-    
-    document.getElementById("metricsRow").classList.add("show");
-    
+
+    const gist = extractGist(rawResponse);
+    if (gist) {
+      document.getElementById("gistBox").textContent = gist;
+      document.getElementById("gistBox").classList.add("show");
+    }
+
+    const display = rawResponse
+      .replace(/^GIST:\s*\n[\s\S]*?(?=\n\nKEY POINTS:|\n\nSUMMARY:|$)/im, "")
+      .replace(/KEYWORD SEARCH:\s*\n[\s\S]*/i, "")
+      .trim();
+
+    step(3, "done");
+    await typewrite(document.getElementById("summaryOut"), display);
+
     setStatus("");
-    summaryEl.classList.remove("streaming");
     document.getElementById("actionRow").classList.add("show");
 
   } catch (err) {
-    document.getElementById("summaryOut").classList.remove("streaming");
     setStatus("");
-    
-    // Provide more specific error messages
-    let errorMsg = "Something went wrong. ";
-    
-    if (err instanceof Error) {
-      console.error("[Pipeline Error]", err.message);
-      errorMsg = err.message;
+    const msg = String(err.message || err);
+    if (/NetworkError|Failed to fetch|network|CORS|fetch/i.test(msg)) {
+      showErr(
+        "Network error reaching the NVIDIA API via CORS proxy. " +
+        "Please check your internet connection, verify your API key is correct, and try again. " +
+        "(" + msg.slice(0,120) + ")"
+      );
     } else {
-      console.error("[Pipeline Error]", err);
-      errorMsg += "Please check your API key and try again.";
+      showErr(msg);
     }
-    
-    // Add helpful hints for common errors
-    if (errorMsg.includes("NetworkError")) {
-      errorMsg += "\n\n💡 Check your internet connection and try again.";
-    } else if (errorMsg.includes("API key") || errorMsg.includes("401")) {
-      errorMsg += "\n\n💡 Double-check your NVIDIA API key at https://build.nvidia.com";
-    } else if (errorMsg.includes("Failed to load video") || errorMsg.includes("extract")) {
-      errorMsg += "\n\n💡 Make sure the video file is a valid, supported format (MP4, WebM, Ogg, MOV).";
-    }
-    
-    showErr(errorMsg);
   } finally {
     document.getElementById("summarizeBtn").disabled = false;
     stopLoadingVideo();
   }
 }
 
-/* ────────────────────────────────────────────────────────────────
-   Init
-   ──────────────────────────────────────────────────────────────── */
+/* ===================================================================
+   INIT
+   =================================================================== */
 window.addEventListener("DOMContentLoaded", () => {
-  console.log(`
-████████████████████████████████████████████
-  VideoSpace — AI Video Summarizer
-  Local Video Processing Edition
-  Built with NVIDIA Cosmos & Nemotron
-████████████████████████████████████████████
-  `);
-  console.info("ℹ️  Open DevTools (F12) Console tab to see detailed logs.");
-  console.info("ℹ️  All video processing happens in your browser. No uploads.");
-  
   const saved = localStorage.getItem("nv_key");
   if (saved) document.getElementById("apiKey").value = saved;
-
-  // File input auto-run on selection
-  document.getElementById("videoFile").addEventListener("change", (e) => {
-    if (e.target.files && e.target.files[0]) {
-      console.info("[File] Selected:", e.target.files[0].name);
-    }
+  document.getElementById("videoUrl").addEventListener("keydown", e => {
+    if (e.key === "Enter") run();
   });
 
-  // Allow pressing Enter from API key field to run
-  document.getElementById("apiKey").addEventListener("keydown", e => {
-    if (e.key === "Enter") run();
+  // Drag-and-drop
+  const zone = document.getElementById("uploadZone");
+  zone.addEventListener("dragover",  e => { e.preventDefault(); zone.classList.add("drag-over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault(); zone.classList.remove("drag-over");
+    const file = e.dataTransfer?.files?.[0];
+    if (file && file.type.startsWith("video/")) {
+      _uploadedFile = file;
+      const fn = document.getElementById("uploadFilename");
+      fn.textContent = "\u2713 " + file.name + "  (" + (file.size/1e6).toFixed(1) + " MB)";
+      fn.classList.add("show");
+    }
   });
 });
 </script>
