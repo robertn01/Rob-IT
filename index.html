@@ -1131,8 +1131,6 @@ async function run() {
    INIT
    =================================================================== */
 window.addEventListener("DOMContentLoaded", () => {
-  const saved = localStorage.getItem("nv_key");
-  if (saved) document.getElementById("apiKey").value = saved;
   document.getElementById("videoUrl").addEventListener("keydown", e => {
     if (e.key === "Enter") run();
   });
