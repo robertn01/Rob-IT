@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VideoSense — AI Video Summarizer</title>
+  <style>
+    /* ── Reset & tokens ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:   #76b900;
+      --green-d: #5d9200;
+      --green-bg: rgba(118,185,0,.08);
+      --bg:      #f5f6f7;
+      --surface: #ffffff;
+      --border:  #e3e5e8;
+      --text:    #0f1117;
+      --muted:   #6b7280;
+      --radius:  14px;
+      --shadow:  0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 48px 20px 80px;
+      line-height: 1.5;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    .wrap { max-width: 680px; margin: 0 auto; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header { text-align: center; margin-bottom: 52px; }
+
+    .wordmark {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+    .pip {
+      width: 10px; height: 10px;
+      background: var(--green);
+      border-radius: 50%;
+    }
+    .pip.small { width: 6px; height: 6px; opacity: .5; }
+
+    h1 {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -.6px;
+      color: var(--text);
+    }
+
+    .tagline {
+      font-size: 15px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .powered {
+      margin-top: 10px;
+      font-size: 11.5px;
+      color: var(--muted);
+      letter-spacing: .02em;
+    }
+    .powered strong { color: var(--green); font-weight: 600; }
+
+    /* ── Cards ──────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── Inputs ─────────────────────────────────────────────── */
+    .field-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 9px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    select:focus {
+      border-color: var(--green);
+      box-shadow: 0 0 0 3px rgba(118,185,0,.12);
+    }
+    input::placeholder { color: #b0b6be; }
+
+    .eye-btn {
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1;
+      padding: 4px;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .hint a { color: var(--green); text-decoration: none; }
+    .hint a:hover { text-decoration: underline; }
+
+    /* ── Model chips ────────────────────────────────────────── */
+    .model-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .model-chip {
+      position: relative;
+      cursor: pointer;
+    }
+    .model-chip input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .model-chip label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 13px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      user-select: none;
+    }
+    .model-chip input[type="radio"]:checked + label {
+      border-color: var(--green);
+      background: var(--green-bg);
+    }
+    .model-chip label .m-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .model-chip label .m-desc {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 100px;
+      margin-top: 4px;
+    }
+    .badge-fast  { background: #dcfce7; color: #15803d; }
+    .badge-deep  { background: #eff6ff; color: #1d4ed8; }
+    .badge-both  { background: #fef3c7; color: #92400e; }
+
+    /* ── Submit row ─────────────────────────────────────────── */
+    .submit-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 6px;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      padding: 11px 26px;
+      border-radius: 9px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    .btn-primary {
+      background: var(--green);
+      color: #fff;
+      min-width: 140px;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--green-d); }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--muted);
+    }
+    .btn-ghost:hover { background: var(--bg); }
+
+    /* ── Status ─────────────────────────────────────────────── */
+    .status-wrap {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status-wrap.show { display: flex; }
+
+    .spinner {
+      width: 15px; height: 15px;
+      border: 2px solid var(--border);
+      border-top-color: var(--green);
+      border-radius: 50%;
+      flex-shrink: 0;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Error ──────────────────────────────────────────────── */
+    .error-box {
+      display: none;
+      padding: 12px 16px;
+      background: #fff5f5;
+      border: 1.5px solid #fca5a5;
+      border-radius: 9px;
+      color: #dc2626;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .error-box.show { display: block; }
+
+    /* ── Results card ───────────────────────────────────────── */
+    .results {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+      margin-bottom: 14px;
+    }
+    .results.show { display: block; }
+
+    /* Video meta row */
+    .video-meta {
+      display: none;
+      align-items: flex-start;
+      gap: 14px;
+      padding-bottom: 20px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .video-meta.show { display: flex; }
+
+    .thumb {
+      width: 100px;
+      height: 56px;
+      border-radius: 7px;
+      object-fit: cover;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .video-info .v-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+    .video-info .v-channel {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Steps progress */
+    .steps {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: #c0c5cc;
+      transition: color .2s;
+    }
+    .step.active { color: var(--text); }
+    .step.done   { color: var(--green); }
+    .step-icon {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      border: 1.5px solid currentColor;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .step.done .step-icon { background: var(--green); border-color: var(--green); color: #fff; }
+    .step-sep { color: #d1d5db; font-size: 11px; }
+
+    /* Thinking collapsible */
+    .think-block {
+      display: none;
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 12px 16px;
+      margin-bottom: 18px;
+    }
+    .think-block.show { display: block; }
+
+    .think-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .think-arrow { font-size: 10px; transition: transform .2s; }
+    .think-arrow.open { transform: rotate(90deg); }
+
+    .think-body {
+      display: none;
+      margin-top: 10px;
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.65;
+      white-space: pre-wrap;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+    .think-body.show { display: block; }
+
+    /* Summary output */
+    .summary-out {
+      font-size: 15px;
+      line-height: 1.72;
+      color: var(--text);
+      white-space: pre-wrap;
+      min-height: 40px;
+    }
+    .summary-out.streaming::after {
+      content: "▋";
+      color: var(--green);
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* Action row */
+    .action-row {
+      display: none;
+      gap: 10px;
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+    .action-row.show { display: flex; }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      margin-top: 52px;
+      font-size: 11.5px;
+      color: #adb5bd;
+    }
+    footer a { color: var(--green); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 520px) {
+      .model-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="wordmark">
+      <div class="pip small"></div>
+      <div class="pip"></div>
+      <h1>VideoSense</h1>
+      <div class="pip"></div>
+      <div class="pip small"></div>
+    </div>
+    <p class="tagline">Paste a YouTube URL. Get an instant AI summary.</p>
+    <p class="powered">Powered by <strong>NVIDIA</strong> Cosmos&nbsp;Reason2&nbsp;·&nbsp;Nemotron&nbsp;Nano&nbsp;9B</p>
+  </header>
+
+  <!-- URL input -->
+  <div class="card">
+    <p class="card-label">Video URL</p>
+    <div class="field-wrap">
+      <input type="text" id="videoUrl"
+             placeholder="https://youtube.com/watch?v=…"
+             autocomplete="off" spellcheck="false" />
+    </div>
+  </div>
+
+  <!-- API Key -->
+  <div class="card">
+    <p class="card-label">NVIDIA API Key</p>
+    <div class="field-wrap">
+      <input type="password" id="apiKey" placeholder="nvapi-…" autocomplete="off" />
+      <button class="eye-btn" onclick="toggleKey()" title="Show / hide">👁</button>
+    </div>
+    <p class="hint">
+      Stored locally in your browser — never sent anywhere except
+      <a href="https://integrate.api.nvidia.com" target="_blank" rel="noopener">integrate.api.nvidia.com</a>.
+      Get a free key at <a href="https://build.nvidia.com" target="_blank" rel="noopener">build.nvidia.com</a>.
+    </p>
+  </div>
+
+  <!-- Model selector -->
+  <div class="card">
+    <p class="card-label">Model</p>
+    <div class="model-grid">
+
+      <div class="model-chip">
+        <input type="radio" name="model" id="m-nemotron" value="nemotron" checked />
+        <label for="m-nemotron">
+          <span class="m-name">Nemotron Nano</span>
+          <span class="m-desc">nvidia-nemotron-nano-9b-v2</span>
+          <span class="badge badge-fast">⚡ Fast</span>
+        </label>
+      </div>
+
+      <div class="model-chip">
+        <input type="radio" name="model" id="m-cosmos" value="cosmos" />
+        <label for="m-cosmos">
+          <span class="m-name">Cosmos Reason2</span>
+          <span class="m-desc">cosmos-reason2-8b</span>
+          <span class="badge badge-deep">🔍 Deep</span>
+        </label>
+      </div>
+
+      <div class="model-chip">
+        <input type="radio" name="model" id="m-both" value="both" />
+        <label for="m-both">
+          <span class="m-name">Both</span>
+          <span class="m-desc">Reason → Summarize</span>
+          <span class="badge badge-both">🔄 Pipeline</span>
+        </label>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <div class="submit-row">
+    <button class="btn btn-primary" id="summarizeBtn" onclick="run()">
+      Summarize →
+    </button>
+    <div class="status-wrap" id="statusWrap">
+      <div class="spinner"></div>
+      <span id="statusText">Working…</span>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Results -->
+  <div class="results" id="results">
+
+    <div class="video-meta" id="videoMeta">
+      <img class="thumb" id="thumb" src="" alt="" />
+      <div class="video-info">
+        <p class="v-title" id="vTitle"></p>
+        <p class="v-channel" id="vChannel"></p>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step" id="s1"><div class="step-icon">1</div> Transcript</div>
+      <span class="step-sep">›</span>
+      <div class="step" id="s2"><div class="step-icon">2</div> Reasoning</div>
+      <span class="step-sep">›</span>
+      <div class="step" id="s3"><div class="step-icon">3</div> Summary</div>
+    </div>
+
+    <div class="think-block" id="thinkBlock">
+      <div class="think-header" onclick="toggleThink()">
+        <span class="think-arrow" id="thinkArrow">▶</span>
+        <span>Model reasoning trace</span>
+      </div>
+      <div class="think-body" id="thinkBody"></div>
+    </div>
+
+    <div class="summary-out" id="summaryOut"></div>
+
+    <div class="action-row" id="actionRow">
+      <button class="btn btn-ghost" onclick="copySummary()">Copy</button>
+      <button class="btn btn-ghost" onclick="resetUI()">New video</button>
+    </div>
+
+  </div>
+
+  <footer>
+    Built on the
+    <a href="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization" target="_blank" rel="noopener">
+      NVIDIA Video Search &amp; Summarization Blueprint
+    </a>
+    &nbsp;·&nbsp;
+    <a href="https://robertn01.github.io/Rob-IT/" target="_blank" rel="noopener">robertn01.github.io/Rob-IT</a>
+  </footer>
+
+</div><!-- /.wrap -->
+
+<script>
+/* ────────────────────────────────────────────────────────────────
+   Constants — model IDs match NVIDIA VSS Blueprint deployments
+   ──────────────────────────────────────────────────────────────── */
+const API_BASE  = "https://integrate.api.nvidia.com/v1";
+const MODEL_ID  = {
+  nemotron: "nvidia/nvidia-nemotron-nano-9b-v2",
+  cosmos:   "nvidia/cosmos-reason2-8b",
+};
+
+/*
+ * Prompts are adapted directly from:
+ * video-search-and-summarization/agent/src/vss_agents/prompt.py
+ *
+ * INIT_SUMMARIZE_PROMPT["caption_summarization_prompt"]
+ * INIT_SUMMARIZE_PROMPT["summary_aggregation_prompt"]
+ */
+const CAPTION_AGG_PROMPT =
+  "Aggregate the following captions in the format " +
+  "**start_timestamp–end_timestamp** event_description. " +
+  "If any two adjacent timestamps are within a few tenths of a second " +
+  "and the event creates a continuous scene, merge them into " +
+  "**start_timestamp1–end_timestamp2** event_description. " +
+  "Make sure the timestamp range encloses the entire event.";
+
+const SUMMARY_AGG_PROMPT =
+  "Given the reasoning analysis below, produce a clean, concise, well-structured " +
+  "final summary a reader can scan in under a minute. " +
+  "Use short paragraphs and bullet points where helpful.";
+
+/* ────────────────────────────────────────────────────────────────
+   Utilities
+   ──────────────────────────────────────────────────────────────── */
+function getVideoId(url) {
+  const patterns = [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/embed\/([A-Za-z0-9_-]{11})/,
+    /\/shorts\/([A-Za-z0-9_-]{11})/,
+    /\/v\/([A-Za-z0-9_-]{11})/,
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function step(n, state) {
+  const el = document.getElementById("s" + n);
+  el.className = "step" + (state ? " " + state : "");
+  if (state === "done") el.querySelector(".step-icon").textContent = "✓";
+}
+
+function setStatus(msg) {
+  const w = document.getElementById("statusWrap");
+  const t = document.getElementById("statusText");
+  if (msg) { t.textContent = msg; w.classList.add("show"); }
+  else      { w.classList.remove("show"); }
+}
+
+function showErr(msg) {
+  const el = document.getElementById("errorBox");
+  el.textContent = msg;
+  el.classList.add("show");
+}
+function clearErr() {
+  document.getElementById("errorBox").classList.remove("show");
+}
+
+function toggleKey() {
+  const f = document.getElementById("apiKey");
+  f.type = f.type === "password" ? "text" : "password";
+}
+
+function toggleThink() {
+  const body  = document.getElementById("thinkBody");
+  const arrow = document.getElementById("thinkArrow");
+  const open  = body.classList.toggle("show");
+  arrow.classList.toggle("open", open);
+}
+
+function copySummary() {
+  const text = document.getElementById("summaryOut").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.currentTarget;
+    btn.textContent = "Copied ✓";
+    setTimeout(() => (btn.textContent = "Copy"), 1800);
+  });
+}
+
+function resetUI() {
+  clearErr();
+  setStatus("");
+  document.getElementById("results").classList.remove("show");
+  document.getElementById("summaryOut").textContent = "";
+  document.getElementById("summaryOut").classList.remove("streaming");
+  document.getElementById("videoMeta").classList.remove("show");
+  document.getElementById("thinkBlock").classList.remove("show");
+  document.getElementById("actionRow").classList.remove("show");
+  document.getElementById("videoUrl").value = "";
+  [1,2,3].forEach(n => step(n, ""));
+}
+
+/* ────────────────────────────────────────────────────────────────
+   Transcript — YouTube timedtext API via CORS proxies.
+   Proxy list sourced from widely-used public CORS proxy services.
+   ──────────────────────────────────────────────────────────────── */
+async function fetchTranscript(videoId) {
+  const mkUrl = (kind) =>
+    `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en` +
+    (kind === "asr" ? "&kind=asr" : "") + "&fmt=json3";
+
+  async function tryProxy(rawUrl) {
+    const proxied = [
+      `https://corsproxy.io/?url=${encodeURIComponent(rawUrl)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(rawUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(rawUrl)}`,
+    ];
+    for (const url of proxied) {
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(9000) });
+        if (!r.ok) continue;
+        const body = await r.text();
+        if (!body || body.length < 20) continue;
+        const data = JSON.parse(body);
+        const result = parseEvents(data);
+        if (result) return result;
+      } catch { /* try next */ }
+    }
+    return null;
+  }
+
+  return (await tryProxy(mkUrl("manual")))
+      || (await tryProxy(mkUrl("asr")))
+      || null;
+}
+
+function parseEvents(data) {
+  if (!data || !Array.isArray(data.events)) return null;
+  const lines = [];
+  for (const ev of data.events) {
+    if (!ev.segs) continue;
+    const t   = ((ev.tStartMs || 0) / 1000).toFixed(1);
+    const txt = ev.segs.map(s => s.utf8 || "").join("").replace(/\n/g, " ").trim();
+    if (txt) lines.push(`<${t}> ${txt}`);
+  }
+  return lines.length ? lines.join("\n") : null;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   Video metadata (oEmbed — no API key needed)
+   ──────────────────────────────────────────────────────────────── */
+async function fetchMeta(videoId) {
+  try {
+    const r = await fetch(
+      `https://www.youtube.com/oembed?url=https://youtube.com/watch?v=${videoId}&format=json`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    return r.ok ? r.json() : null;
+  } catch { return null; }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   NVIDIA API — streaming chat completions
+   OpenAI-compatible endpoint at integrate.api.nvidia.com
+   ──────────────────────────────────────────────────────────────── */
+async function nvidiaChatStream(apiKey, model, messages, onDelta) {
+  const res = await fetch(`${API_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type":  "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens:  1536,
+      temperature: 0.2,
+      top_p:       0.7,
+      stream:      true,
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`NVIDIA API ${res.status}: ${txt.slice(0, 300)}`);
+  }
+
+  const reader  = res.body.getReader();
+  const decoder = new TextDecoder();
+  let   full    = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const line of decoder.decode(value, { stream: true }).split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (payload === "[DONE]") break;
+      try {
+        const delta = JSON.parse(payload).choices?.[0]?.delta?.content || "";
+        if (delta) { full += delta; onDelta(full); }
+      } catch { /* skip malformed chunks */ }
+    }
+  }
+  return full;
+}
+
+/*
+ * Parse <think>…</think> blocks from cosmos-reason2-8b output.
+ * Logic mirrors video_understanding.py::_parse_thinking_from_content()
+ * in the NVIDIA VSS Blueprint.
+ */
+function splitThinking(text) {
+  if (!text.includes("<think>")) return { thinking: null, answer: text };
+  const ts = text.indexOf("<think>") + 7;
+  const te = text.indexOf("</think>");
+  if (te < ts) return { thinking: null, answer: text };
+  const thinking = text.slice(ts, te).trim();
+  let   after    = text.slice(te + 8).trim();
+  if (after.startsWith("<answer>") && after.includes("</answer>")) {
+    after = after.slice(8, after.indexOf("</answer>")).trim();
+  }
+  return { thinking, answer: after || text };
+}
+
+/* ────────────────────────────────────────────────────────────────
+   Main pipeline
+   ──────────────────────────────────────────────────────────────── */
+async function run() {
+  clearErr();
+
+  const urlVal   = document.getElementById("videoUrl").value.trim();
+  const apiKey   = document.getElementById("apiKey").value.trim();
+  const modelVal = document.querySelector('input[name="model"]:checked').value;
+
+  if (apiKey)  localStorage.setItem("nv_key", apiKey);
+  else { const saved = localStorage.getItem("nv_key"); if (saved) document.getElementById("apiKey").value = saved; }
+
+  if (!urlVal) { showErr("Please enter a YouTube URL."); return; }
+  const savedKey = localStorage.getItem("nv_key") || apiKey;
+  if (!savedKey) { showErr("Please enter your NVIDIA API key."); return; }
+
+  const videoId = getVideoId(urlVal);
+  if (!videoId) { showErr("Could not find a YouTube video ID in that URL."); return; }
+
+  /* UI reset */
+  document.getElementById("summarizeBtn").disabled = true;
+  document.getElementById("results").classList.add("show");
+  document.getElementById("summaryOut").textContent = "";
+  document.getElementById("summaryOut").classList.add("streaming");
+  document.getElementById("thinkBlock").classList.remove("show");
+  document.getElementById("actionRow").classList.remove("show");
+  document.getElementById("videoMeta").classList.remove("show");
+  [1,2,3].forEach(n => step(n, ""));
+
+  try {
+    /* ── Step 1: Transcript ── */
+    step(1, "active");
+    setStatus("Fetching transcript…");
+
+    const [transcript, meta] = await Promise.all([
+      fetchTranscript(videoId),
+      fetchMeta(videoId),
+    ]);
+
+    if (meta) {
+      document.getElementById("thumb").src =
+        `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+      document.getElementById("vTitle").textContent   = meta.title       || "";
+      document.getElementById("vChannel").textContent = meta.author_name || "";
+      document.getElementById("videoMeta").classList.add("show");
+    }
+
+    const txText = transcript
+      || "[Transcript unavailable — summarising from context only.]";
+
+    step(1, "done");
+
+    const summaryEl = document.getElementById("summaryOut");
+
+    /* ── Step 2 / 3 depending on model choice ── */
+    if (modelVal === "nemotron") {
+      /* Fast path — single Nemotron call */
+      step(2, "done");
+      step(3, "active");
+      setStatus("Nemotron Nano 9B — summarising…");
+
+      await nvidiaChatStream(
+        savedKey,
+        MODEL_ID.nemotron,
+        [
+          {
+            role: "system",
+            content:
+              "You are an expert video summarizer. " +
+              "Given a timestamped transcript, produce a structured, " +
+              "well-formatted summary covering key topics, main arguments, " +
+              "and important details. Use headings and bullet points.",
+          },
+          {
+            role: "user",
+            content:
+              CAPTION_AGG_PROMPT +
+              "\n\nTranscript:\n" +
+              txText.slice(0, 14_000),
+          },
+        ],
+        text => { summaryEl.textContent = text; }
+      );
+      step(3, "done");
+
+    } else if (modelVal === "cosmos") {
+      /* Deep reasoning path — Cosmos Reason2 only */
+      step(2, "active");
+      setStatus("Cosmos Reason2 8B — reasoning…");
+
+      /*
+       * cosmos-reason2-8b reasoning format:
+       * Per video_understanding.py, for cosmos-reason2 we use NO special system
+       * prompt for reasoning — instead we append the <think> format instruction
+       * to the user message directly (is_cosmos_reason2 branch).
+       */
+      let cosmosOut = "";
+      await nvidiaChatStream(
+        savedKey,
+        MODEL_ID.cosmos,
+        [
+          { role: "system", content: "You are an expert video analyst." },
+          {
+            role: "user",
+            content:
+              "Analyse the following YouTube video transcript and provide a detailed, " +
+              "structured summary.\n\n" +
+              "Transcript:\n" + txText.slice(0, 12_000) +
+              "\n\nAnswer the question using the following format:\n\n" +
+              "<think>\nYour reasoning.\n</think>\n\n" +
+              "Write your final answer immediately after the </think> tag.",
+          },
+        ],
+        raw => {
+          cosmosOut = raw;
+          const { thinking, answer } = splitThinking(raw);
+          if (thinking) {
+            document.getElementById("thinkBlock").classList.add("show");
+            document.getElementById("thinkBody").textContent = thinking;
+          }
+          summaryEl.textContent = answer;
+        }
+      );
+      step(2, "done");
+      step(3, "done");
+
+    } else {
+      /* Pipeline: Cosmos reason → Nemotron summarise */
+      step(2, "active");
+      setStatus("Cosmos Reason2 8B — reasoning…");
+
+      let cosmosOut = "";
+      await nvidiaChatStream(
+        savedKey,
+        MODEL_ID.cosmos,
+        [
+          { role: "system", content: "You are an expert video analyst." },
+          {
+            role: "user",
+            content:
+              "Analyse this YouTube video transcript. Identify the key themes, " +
+              "main arguments, notable facts, and structure of the content.\n\n" +
+              "Transcript:\n" + txText.slice(0, 12_000) +
+              "\n\nAnswer the question using the following format:\n\n" +
+              "<think>\nYour reasoning.\n</think>\n\n" +
+              "Write your detailed analysis immediately after the </think> tag.",
+          },
+        ],
+        raw => {
+          cosmosOut = raw;
+          const { thinking, answer } = splitThinking(raw);
+          if (thinking) {
+            document.getElementById("thinkBlock").classList.add("show");
+            document.getElementById("thinkBody").textContent = thinking;
+          }
+          summaryEl.textContent = "Reasoning complete — generating final summary…";
+        }
+      );
+
+      const { answer: analysis } = splitThinking(cosmosOut);
+      step(2, "done");
+      step(3, "active");
+      summaryEl.textContent = "";
+      setStatus("Nemotron Nano 9B — summarising…");
+
+      await nvidiaChatStream(
+        savedKey,
+        MODEL_ID.nemotron,
+        [
+          {
+            role: "system",
+            content:
+              "You are a concise, expert summarizer. " +
+              "Given a detailed analysis, produce a crisp final summary " +
+              "with clear headings and bullet points.",
+          },
+          {
+            role: "user",
+            content: SUMMARY_AGG_PROMPT + "\n\nAnalysis:\n" + analysis.slice(0, 10_000),
+          },
+        ],
+        text => { summaryEl.textContent = text; }
+      );
+      step(3, "done");
+    }
+
+    /* Done */
+    setStatus("");
+    summaryEl.classList.remove("streaming");
+    document.getElementById("actionRow").classList.add("show");
+
+  } catch (err) {
+    document.getElementById("summaryOut").classList.remove("streaming");
+    setStatus("");
+    showErr(err.message || "Something went wrong. Check your API key and try again.");
+  } finally {
+    document.getElementById("summarizeBtn").disabled = false;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   Init
+   ──────────────────────────────────────────────────────────────── */
+window.addEventListener("DOMContentLoaded", () => {
+  const saved = localStorage.getItem("nv_key");
+  if (saved) document.getElementById("apiKey").value = saved;
+
+  document.getElementById("videoUrl").addEventListener("keydown", e => {
+    if (e.key === "Enter") run();
+  });
+});
+</script>
+</body>
+</html>
