@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VideoSense — AI Video Summarizer</title>
+  <title>VideoSpace — AI Video Summarizer</title>
   <style>
     /* ── Reset & tokens ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -409,9 +409,57 @@
       .model-grid { grid-template-columns: 1fr; }
       h1 { font-size: 24px; }
     }
+
+    /* ── Loading video — travels around the viewport frame ── */
+    #loadingVideo {
+      display: none;
+      position: fixed;
+      width: 220px;
+      aspect-ratio: 16 / 9;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow:
+        0 0 0 2px rgba(118,185,0,.5),
+        0 0 24px rgba(118,185,0,.35),
+        0 8px 32px rgba(0,0,0,.22);
+      z-index: 999;
+      pointer-events: none;
+      /* fade in */
+      opacity: 0;
+      transition: opacity .4s ease;
+    }
+    #loadingVideo.visible {
+      display: block;
+      opacity: 1;
+    }
+    #loadingVideo video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    /* Subtle animated green border pulse while active */
+    @keyframes glowPulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(118,185,0,.5), 0 0 24px rgba(118,185,0,.35), 0 8px 32px rgba(0,0,0,.22); }
+      50%       { box-shadow: 0 0 0 2px rgba(118,185,0,.9), 0 0 40px rgba(118,185,0,.6), 0 8px 32px rgba(0,0,0,.3);  }
+    }
+    #loadingVideo.visible { animation: glowPulse 2.2s ease-in-out infinite; }
   </style>
 </head>
 <body>
+
+<!-- ── Loading video widget (moves around viewport perimeter) ── -->
+<div id="loadingVideo">
+  <video
+    id="loadingVid"
+    src="img/Video_Distortion_and_Visual_Illusions.mp4"
+    autoplay
+    loop
+    muted
+    playsinline
+  ></video>
+</div>
+
 <div class="wrap">
 
   <!-- Header -->
@@ -419,7 +467,7 @@
     <div class="wordmark">
       <div class="pip small"></div>
       <div class="pip"></div>
-      <h1>VideoSense</h1>
+      <h1>VideoSpace</h1>
       <div class="pip"></div>
       <div class="pip small"></div>
     </div>
@@ -551,19 +599,12 @@
 /* ────────────────────────────────────────────────────────────────
    Constants — model IDs match NVIDIA VSS Blueprint deployments
    ──────────────────────────────────────────────────────────────── */
-const API_BASE  = "https://integrate.api.nvidia.com/v1";
-const MODEL_ID  = {
+const API_BASE = "https://integrate.api.nvidia.com/v1";
+const MODEL_ID = {
   nemotron: "nvidia/nvidia-nemotron-nano-9b-v2",
   cosmos:   "nvidia/cosmos-reason2-8b",
 };
 
-/*
- * Prompts are adapted directly from:
- * video-search-and-summarization/agent/src/vss_agents/prompt.py
- *
- * INIT_SUMMARIZE_PROMPT["caption_summarization_prompt"]
- * INIT_SUMMARIZE_PROMPT["summary_aggregation_prompt"]
- */
 const CAPTION_AGG_PROMPT =
   "Aggregate the following captions in the format " +
   "**start_timestamp–end_timestamp** event_description. " +
@@ -576,6 +617,82 @@ const SUMMARY_AGG_PROMPT =
   "Given the reasoning analysis below, produce a clean, concise, well-structured " +
   "final summary a reader can scan in under a minute. " +
   "Use short paragraphs and bullet points where helpful.";
+
+/* ────────────────────────────────────────────────────────────────
+   Loading video — perimeter animation
+   The video widget travels clockwise around the four edges of the
+   viewport: top → right → bottom → left → repeat.
+   ──────────────────────────────────────────────────────────────── */
+const VID_W = 220;   // px — widget width
+const VID_H = 124;   // px — widget height (≈16:9)
+const SPEED = 160;   // px per second along the perimeter
+
+let _rafId    = null;
+let _distance = 0;   // total px traveled along the perimeter
+let _lastTs   = null;
+
+function perimeterPos(d) {
+  // Returns {x, y} for distance d along the clockwise perimeter,
+  // keeping the widget fully inside the viewport.
+  const W = window.innerWidth  - VID_W;
+  const H = window.innerHeight - VID_H;
+  const perim = 2 * (W + H);
+  const t = ((d % perim) + perim) % perim; // normalise
+
+  if (t < W)              return { x: t,         y: 0 };           // top edge →
+  if (t < W + H)          return { x: W,          y: t - W };      // right edge ↓
+  if (t < 2 * W + H)      return { x: W - (t - W - H), y: H };     // bottom edge ←
+  /* left edge ↑ */       return { x: 0,          y: H - (t - 2*W - H) };
+}
+
+function tickLoading(ts) {
+  if (_lastTs !== null) {
+    _distance += SPEED * (ts - _lastTs) / 1000;
+  }
+  _lastTs = ts;
+
+  const { x, y } = perimeterPos(_distance);
+  const el = document.getElementById("loadingVideo");
+  el.style.left = x + "px";
+  el.style.top  = y + "px";
+
+  _rafId = requestAnimationFrame(tickLoading);
+}
+
+function startLoadingVideo() {
+  const wrap = document.getElementById("loadingVideo");
+  const vid  = document.getElementById("loadingVid");
+
+  // Start from a random position on the perimeter so it doesn't
+  // always appear from the same corner.
+  const W = window.innerWidth  - VID_W;
+  const H = window.innerHeight - VID_H;
+  _distance = Math.random() * 2 * (W + H);
+  _lastTs   = null;
+
+  vid.currentTime = 0;
+  vid.play().catch(() => {});  // autoplay may need a user gesture; catch silently
+
+  wrap.style.display = "block";
+  // Trigger CSS transition on next frame
+  requestAnimationFrame(() => wrap.classList.add("visible"));
+
+  _rafId = requestAnimationFrame(tickLoading);
+}
+
+function stopLoadingVideo() {
+  if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+
+  const wrap = document.getElementById("loadingVideo");
+  const vid  = document.getElementById("loadingVid");
+
+  wrap.classList.remove("visible");
+  // Hide after fade-out transition (400 ms)
+  setTimeout(() => {
+    wrap.style.display = "none";
+    vid.pause();
+  }, 450);
+}
 
 /* ────────────────────────────────────────────────────────────────
    Utilities
@@ -641,6 +758,7 @@ function copySummary() {
 function resetUI() {
   clearErr();
   setStatus("");
+  stopLoadingVideo();
   document.getElementById("results").classList.remove("show");
   document.getElementById("summaryOut").textContent = "";
   document.getElementById("summaryOut").classList.remove("streaming");
@@ -652,8 +770,7 @@ function resetUI() {
 }
 
 /* ────────────────────────────────────────────────────────────────
-   Transcript — YouTube timedtext API via CORS proxies.
-   Proxy list sourced from widely-used public CORS proxy services.
+   Transcript — YouTube timedtext API via CORS proxies
    ──────────────────────────────────────────────────────────────── */
 async function fetchTranscript(videoId) {
   const mkUrl = (kind) =>
@@ -698,7 +815,7 @@ function parseEvents(data) {
 }
 
 /* ────────────────────────────────────────────────────────────────
-   Video metadata (oEmbed — no API key needed)
+   Video metadata (oEmbed)
    ──────────────────────────────────────────────────────────────── */
 async function fetchMeta(videoId) {
   try {
@@ -712,7 +829,6 @@ async function fetchMeta(videoId) {
 
 /* ────────────────────────────────────────────────────────────────
    NVIDIA API — streaming chat completions
-   OpenAI-compatible endpoint at integrate.api.nvidia.com
    ──────────────────────────────────────────────────────────────── */
 async function nvidiaChatStream(apiKey, model, messages, onDelta) {
   const res = await fetch(`${API_BASE}/chat/completions`, {
@@ -757,9 +873,8 @@ async function nvidiaChatStream(apiKey, model, messages, onDelta) {
 }
 
 /*
- * Parse <think>…</think> blocks from cosmos-reason2-8b output.
- * Logic mirrors video_understanding.py::_parse_thinking_from_content()
- * in the NVIDIA VSS Blueprint.
+ * Parse <think>…</think> blocks from cosmos-reason2-8b.
+ * Mirrors video_understanding.py::_parse_thinking_from_content()
  */
 function splitThinking(text) {
   if (!text.includes("<think>")) return { thinking: null, answer: text };
@@ -784,15 +899,14 @@ async function run() {
   const apiKey   = document.getElementById("apiKey").value.trim();
   const modelVal = document.querySelector('input[name="model"]:checked').value;
 
-  if (apiKey)  localStorage.setItem("nv_key", apiKey);
-  else { const saved = localStorage.getItem("nv_key"); if (saved) document.getElementById("apiKey").value = saved; }
+  if (apiKey) localStorage.setItem("nv_key", apiKey);
+  const savedKey = apiKey || localStorage.getItem("nv_key") || "";
 
-  if (!urlVal) { showErr("Please enter a YouTube URL."); return; }
-  const savedKey = localStorage.getItem("nv_key") || apiKey;
+  if (!urlVal)   { showErr("Please enter a YouTube URL."); return; }
   if (!savedKey) { showErr("Please enter your NVIDIA API key."); return; }
 
   const videoId = getVideoId(urlVal);
-  if (!videoId) { showErr("Could not find a YouTube video ID in that URL."); return; }
+  if (!videoId)  { showErr("Could not find a YouTube video ID in that URL."); return; }
 
   /* UI reset */
   document.getElementById("summarizeBtn").disabled = true;
@@ -803,6 +917,9 @@ async function run() {
   document.getElementById("actionRow").classList.remove("show");
   document.getElementById("videoMeta").classList.remove("show");
   [1,2,3].forEach(n => step(n, ""));
+
+  /* Start the loading animation */
+  startLoadingVideo();
 
   try {
     /* ── Step 1: Transcript ── */
@@ -831,14 +948,12 @@ async function run() {
 
     /* ── Step 2 / 3 depending on model choice ── */
     if (modelVal === "nemotron") {
-      /* Fast path — single Nemotron call */
       step(2, "done");
       step(3, "active");
       setStatus("Nemotron Nano 9B — summarising…");
 
       await nvidiaChatStream(
-        savedKey,
-        MODEL_ID.nemotron,
+        savedKey, MODEL_ID.nemotron,
         [
           {
             role: "system",
@@ -850,10 +965,7 @@ async function run() {
           },
           {
             role: "user",
-            content:
-              CAPTION_AGG_PROMPT +
-              "\n\nTranscript:\n" +
-              txText.slice(0, 14_000),
+            content: CAPTION_AGG_PROMPT + "\n\nTranscript:\n" + txText.slice(0, 14_000),
           },
         ],
         text => { summaryEl.textContent = text; }
@@ -861,20 +973,12 @@ async function run() {
       step(3, "done");
 
     } else if (modelVal === "cosmos") {
-      /* Deep reasoning path — Cosmos Reason2 only */
       step(2, "active");
       setStatus("Cosmos Reason2 8B — reasoning…");
 
-      /*
-       * cosmos-reason2-8b reasoning format:
-       * Per video_understanding.py, for cosmos-reason2 we use NO special system
-       * prompt for reasoning — instead we append the <think> format instruction
-       * to the user message directly (is_cosmos_reason2 branch).
-       */
       let cosmosOut = "";
       await nvidiaChatStream(
-        savedKey,
-        MODEL_ID.cosmos,
+        savedKey, MODEL_ID.cosmos,
         [
           { role: "system", content: "You are an expert video analyst." },
           {
@@ -908,15 +1012,14 @@ async function run() {
 
       let cosmosOut = "";
       await nvidiaChatStream(
-        savedKey,
-        MODEL_ID.cosmos,
+        savedKey, MODEL_ID.cosmos,
         [
           { role: "system", content: "You are an expert video analyst." },
           {
             role: "user",
             content:
-              "Analyse this YouTube video transcript. Identify the key themes, " +
-              "main arguments, notable facts, and structure of the content.\n\n" +
+              "Analyse this YouTube video transcript. Identify key themes, " +
+              "main arguments, notable facts, and structure.\n\n" +
               "Transcript:\n" + txText.slice(0, 12_000) +
               "\n\nAnswer the question using the following format:\n\n" +
               "<think>\nYour reasoning.\n</think>\n\n" +
@@ -941,8 +1044,7 @@ async function run() {
       setStatus("Nemotron Nano 9B — summarising…");
 
       await nvidiaChatStream(
-        savedKey,
-        MODEL_ID.nemotron,
+        savedKey, MODEL_ID.nemotron,
         [
           {
             role: "system",
@@ -972,6 +1074,7 @@ async function run() {
     showErr(err.message || "Something went wrong. Check your API key and try again.");
   } finally {
     document.getElementById("summarizeBtn").disabled = false;
+    stopLoadingVideo();
   }
 }
 
