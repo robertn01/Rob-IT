@@ -295,6 +295,11 @@
         </label>
       </div>
     </div>
+    <p id="vlmNotice" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:8px 12px;">
+      &#9888;&#65039; <strong>Video file mode:</strong> Cosmos&nbsp;Reason2&nbsp;8B (VLM) will always handle frame analysis &mdash;
+      Nemotron&nbsp;Nano is text-only and cannot process video frames directly.
+      Selecting <em>Nemotron</em> will automatically switch to Cosmos for this step.
+    </p>
   </div>
 
   <!-- Keyword search -->
@@ -447,6 +452,9 @@ function switchTab(mode) {
   document.getElementById("tabUpload").classList.toggle("active", mode === "upload");
   document.getElementById("paneUrl").classList.toggle("show",     mode === "url");
   document.getElementById("paneUpload").classList.toggle("show",  mode === "upload");
+  // Show/hide the VLM notice on the model card
+  const notice = document.getElementById("vlmNotice");
+  if (notice) notice.style.display = mode === "upload" ? "block" : "none";
 }
 
 function onFileChosen(input) {
@@ -840,19 +848,32 @@ async function run() {
     }
     step(1, "done");
 
-    /* STEP 2 — AI analysis */
+    /* STEP 2 — AI analysis
+       IMPORTANT: Nemotron Nano 9B is a text-only LLM — it cannot accept
+       image frames. When the user has uploaded a video file, frames must
+       always be processed by Cosmos Reason2 (the VLM). Nemotron can still
+       be used as a text-only summarizer in the pipeline step that follows. */
     step(2, "active");
     const hasKw   = keywords.length > 0;
     const sysMsg  = { role: "system", content: buildSystem(hasKw) };
     let rawContent = frames ? buildFrameContent(frames, keywords) : buildTranscriptUser(transcript, keywords);
     let rawResponse = "";
 
-    if (modelVal === "nemotron") {
+    // If we have frames, Cosmos Reason2 must handle them — override Nemotron-only selection.
+    const effectiveModel = (frames && modelVal === "nemotron") ? "cosmos" : modelVal;
+    if (frames && modelVal === "nemotron") {
+      setStatus("Switching to Cosmos Reason2 8B \u2014 Nemotron is text-only\u2026");
+      await new Promise(r => setTimeout(r, 1200)); // let the user read the notice
+    }
+
+    if (effectiveModel === "nemotron") {
+      // Text-only path (transcript / URL context — no frames)
       setStatus("Nemotron Nano 9B \u2014 analysing\u2026");
       rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [sysMsg, { role:"user", content: rawContent }]);
       step(2, "done");
 
-    } else if (modelVal === "cosmos") {
+    } else if (effectiveModel === "cosmos") {
+      // VLM path — handles both frames and text transcripts
       setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
       const cosmosContent = appendCosmosReasoning(rawContent);
       rawResponse = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosContent }]);
@@ -865,7 +886,7 @@ async function run() {
       step(2, "done");
 
     } else {
-      // Pipeline: Cosmos reasons, Nemotron polishes
+      // Pipeline: Cosmos VLM analyses frames/transcript → Nemotron polishes text
       setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
       const cosmosContent = appendCosmosReasoning(rawContent);
       const cosmosRaw = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosContent }]);
@@ -876,6 +897,7 @@ async function run() {
       }
       step(2, "done");
       step(3, "active");
+      // Nemotron receives only text at this point — no frames
       setStatus("Nemotron Nano 9B \u2014 summarising\u2026");
       rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [
         sysMsg,
