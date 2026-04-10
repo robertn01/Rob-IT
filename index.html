@@ -515,18 +515,8 @@
 /* ===================================================================
    CONSTANTS
    =================================================================== */
-// NVIDIA's API has no CORS headers for browser origins, so calls are proxied.
-// corsproxy.io free plan blocks large JSON bodies (base64 image frames), so
-// we maintain a waterfall: try each proxy/direct in order until one works.
-const NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
-const PROXY_LIST = [
-  // 1. corsproxy.io — reliable for text-only payloads
-  u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-  // 2. allorigins raw — alternative proxy (GET-forwards but also passes POST)
-  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-  // 3. Direct — works if NVIDIA ever enables CORS, or in environments without restrictions
-  u => u,
-];
+// Backend configuration — replace with your deployed endpoint
+const BACKEND_URL = localStorage.getItem("backend_url") || "http://localhost:8000";
 
 const MODEL_ID = {
   nemotron: "nvidia/nvidia-nemotron-nano-9b-v2",
@@ -703,58 +693,68 @@ async function fetchMeta(videoId) {
 }
 
 /* ===================================================================
-   NVIDIA API — proxy waterfall, non-streaming
-   Tries each proxy in PROXY_LIST until one succeeds. A 403 from a proxy
-   (not from NVIDIA) means the proxy rejected the request — move on.
-   A 4xx/5xx from NVIDIA itself is a real error — throw immediately.
+   BACKEND INTEGRATION
+   Calls the FastAPI backend instead of using CORS proxies.
+   Backend handles frame extraction, NVIDIA API auth, and caching.
    =================================================================== */
+async function analyzeWithBackend(apiKey, model, videoFile, keywords) {
+  const formData = new FormData();
+  formData.append("video", videoFile);
+  formData.append("api_key", apiKey);
+  formData.append("model", model);
+  if (keywords) formData.append("keywords", keywords);
+
+  const res = await fetch(BACKEND_URL + "/analyze", {
+    method: "POST",
+    body: formData,
+    signal: AbortSignal.timeout(120000), // Allow up to 2 minutes for processing
+  });
+
+  if (!res.ok) {
+    let msg = "Backend error " + res.status;
+    try { const j = await res.json(); msg += ": " + (j.detail || JSON.stringify(j)).slice(0, 300); }
+    catch { msg += ": " + (await res.text().catch(() => "")).slice(0, 200); }
+    throw new Error(msg);
+  }
+
+  return res.json();
+}
+
 async function nvidiaChatCall(apiKey, model, messages) {
+  // Legacy text-only API calls (for YouTube transcripts, not used with backend for file upload)
+  // Kept for backward compatibility with YouTube transcript path
   const body = JSON.stringify({ model, messages, max_tokens: 1400, temperature: 0.2, top_p: 0.7, stream: false });
   const headers = { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" };
 
-  let lastErr = null;
+  const endpoint = "https://integrate.api.nvidia.com/v1/chat/completions";
 
-  for (let i = 0; i < PROXY_LIST.length; i++) {
-    const url = PROXY_LIST[i](NVIDIA_ENDPOINT);
-    const isDirect = (url === NVIDIA_ENDPOINT);
-    try {
-      const res = await fetch(url, { method: "POST", headers, body,
-        signal: AbortSignal.timeout(60000) });
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body,
+      signal: AbortSignal.timeout(60000),
+    });
 
-      // 403 from corsproxy/allorigins = proxy rejected content → try next
-      if (!isDirect && res.status === 403) {
-        lastErr = new Error("Proxy " + (i+1) + " rejected the request (403 — content restriction).");
-        continue;
-      }
-
-      if (!res.ok) {
-        // Real NVIDIA error — parse and throw immediately
-        let msg = "NVIDIA API error " + res.status;
-        try { const j = await res.json(); msg += ": " + JSON.stringify(j).slice(0,300); }
-        catch { msg += ": " + (await res.text().catch(()=>"")).slice(0,200); }
-        throw new Error(msg);
-      }
-
-      const data = await res.json();
-      return data.choices?.[0]?.message?.content || "";
-
-    } catch (e) {
-      // Network / CORS / timeout errors on direct call or proxy → try next
-      if (e.name === "TypeError" || e.name === "AbortError" || /fetch|network|CORS/i.test(e.message)) {
-        lastErr = e;
-        continue;
-      }
-      throw e; // Real NVIDIA errors rethrown immediately
+    if (!res.ok) {
+      let msg = "NVIDIA API error " + res.status;
+      try { const j = await res.json(); msg += ": " + JSON.stringify(j).slice(0, 300); }
+      catch { msg += ": " + (await res.text().catch(() => "")).slice(0, 200); }
+      throw new Error(msg);
     }
-  }
 
-  // All proxies exhausted
-  throw new Error(
-    "Could not reach the NVIDIA API through any available route.\n" +
-    "Last error: " + (lastErr?.message || "unknown") + "\n\n" +
-    "Tips: check your API key, try a YouTube URL instead of a file upload, " +
-    "or open the browser console for more detail."
-  );
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+
+  } catch (e) {
+    if (/fetch|network|CORS|TypeError|AbortError/i.test(e.message)) {
+      throw new Error(
+        "Could not reach NVIDIA API. Check your internet connection, API key validity, or " +
+        "try using the video file upload mode with your backend.  (" + e.message.slice(0, 100) + ")"
+      );
+    }
+    throw e;
+  }
 }
 
 /* ===================================================================
@@ -968,7 +968,7 @@ async function run() {
   const key = apiKey || localStorage.getItem("nv_key") || "";
   if (!key) { showErr("Please enter your NVIDIA API key."); return; }
 
-  let videoId = null, transcript = null, frames = null;
+  let videoId = null, transcript = null;
 
   if (_inputMode === "upload") {
     if (!_uploadedFile) { showErr("Please choose a video file to upload."); return; }
@@ -998,10 +998,70 @@ async function run() {
     step(1, "active");
 
     if (_inputMode === "upload") {
-      setStatus("Extracting frames from video\u2026");
-      frames = await extractFrames(_uploadedFile, 4); // 4 small frames ≈ 40 KB total
-      setStatus("Extracted " + frames.length + " frames \u2014 ready");
-    } else if (videoId) {
+      // === FILE UPLOAD PATH — use backend for processing ===
+      setStatus("Uploading video to backend\u2026");
+      document.getElementById("videoMeta").classList.remove("show");
+
+      const backendResult = await analyzeWithBackend(
+        key,
+        modelVal,
+        _uploadedFile,
+        kwRaw
+      );
+
+      // Extract results from backend
+      const { thinking, summary, keywords_found, cache_hit, video_meta } = backendResult;
+      const rawResponse = summary;
+
+      // Show metadata
+      document.getElementById("vTitle").textContent = video_meta.filename;
+      document.getElementById("vChannel").textContent = `${video_meta.frame_count} frames, ${video_meta.duration.toFixed(1)}s`;
+      if (cache_hit) document.getElementById("vChannel").textContent += " (cached)";
+      document.getElementById("videoMeta").classList.add("show");
+
+      // Show reasoning if present
+      if (thinking) {
+        document.getElementById("thinkBlock").classList.add("show");
+        document.getElementById("thinkBody").textContent = thinking;
+      }
+
+      step(1, "done");
+      step(2, "done");
+      step(3, "active");
+
+      // Render results
+      setStatus("Rendering\u2026");
+
+      // Show keywords
+      if (keywords.length > 0 && keywords_found) {
+        const items = keywords.map(kw => ({
+          keyword: kw,
+          found: keywords_found[kw] !== null,
+          context: keywords_found[kw] || "Not found",
+        }));
+        renderKeywords(items, "");
+      }
+
+      // Extract and show gist
+      const gist = extractGist(rawResponse);
+      if (gist) {
+        document.getElementById("gistBox").textContent = gist;
+        document.getElementById("gistBox").classList.add("show");
+      }
+
+      const display = rawResponse
+        .replace(/^GIST:\s*\n[\s\S]*?(?=\n\nKEY POINTS:|\n\nSUMMARY:|$)/im, "")
+        .replace(/KEYWORD SEARCH:\s*\n[\s\S]*/i, "")
+        .trim();
+
+      step(3, "done");
+      await typewrite(document.getElementById("summaryOut"), display);
+
+      setStatus("");
+      document.getElementById("actionRow").classList.add("show");
+
+    } else {
+      // === YOUTUBE TRANSCRIPT PATH — use text-based APIs as before ===
       setStatus("Fetching transcript & metadata\u2026");
       const [tx, meta] = await Promise.all([fetchTranscript(videoId), fetchMeta(videoId)]);
       transcript = tx;
@@ -1017,106 +1077,89 @@ async function run() {
           : "[No transcript available.]";
         setStatus("No captions found \u2014 using title context");
       }
-    } else {
-      const urlVal = document.getElementById("videoUrl").value.trim();
-      transcript = "[Direct URL: " + urlVal + ". Summarise based on URL context.]";
-    }
-    step(1, "done");
+      step(1, "done");
 
-    /* STEP 2 — AI analysis
-       IMPORTANT: Nemotron Nano 9B is a text-only LLM — it cannot accept
-       image frames. When the user has uploaded a video file, frames must
-       always be processed by Cosmos Reason2 (the VLM). Nemotron can still
-       be used as a text-only summarizer in the pipeline step that follows. */
-    step(2, "active");
-    const hasKw   = keywords.length > 0;
-    const sysMsg  = { role: "system", content: buildSystem(hasKw) };
-    let rawContent = frames ? buildFrameContent(frames, keywords) : buildTranscriptUser(transcript, keywords);
-    let rawResponse = "";
+      /* STEP 2 — AI analysis (YouTube transcript path) */
+      step(2, "active");
+      const hasKw   = keywords.length > 0;
+      const sysMsg  = { role: "system", content: buildSystem(hasKw) };
+      const rawContent = buildTranscriptUser(transcript, keywords);
+      let rawResponse = "";
 
-    // If we have frames, Cosmos Reason2 must handle them — override Nemotron-only selection.
-    const effectiveModel = (frames && modelVal === "nemotron") ? "cosmos" : modelVal;
-    if (frames && modelVal === "nemotron") {
-      setStatus("Switching to Cosmos Reason2 8B \u2014 Nemotron is text-only\u2026");
-      await new Promise(r => setTimeout(r, 1200)); // let the user read the notice
-    }
+      if (modelVal === "nemotron") {
+        setStatus("Nemotron Nano 9B \u2014 analysing\u2026");
+        rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [sysMsg, { role:"user", content: rawContent }]);
+        step(2, "done");
 
-    if (effectiveModel === "nemotron") {
-      // Text-only path (transcript / URL context — no frames)
-      setStatus("Nemotron Nano 9B \u2014 analysing\u2026");
-      rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [sysMsg, { role:"user", content: rawContent }]);
-      step(2, "done");
+      } else if (modelVal === "cosmos") {
+        setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
+        const cosmosContent = buildFrameContent([], keywords).slice(0, -0); // Remove frames array part
+        const cosmosMsg = buildTranscriptUser(transcript, keywords) + "\n\nAnswer using this format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your full answer immediately after the </think> tag.";
+        rawResponse = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosMsg }]);
+        const { thinking, answer } = splitThinking(rawResponse);
+        if (thinking) {
+          document.getElementById("thinkBlock").classList.add("show");
+          document.getElementById("thinkBody").textContent = thinking;
+        }
+        rawResponse = answer;
+        step(2, "done");
 
-    } else if (effectiveModel === "cosmos") {
-      // VLM path — handles both frames and text transcripts
-      setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
-      const cosmosContent = appendCosmosReasoning(rawContent);
-      rawResponse = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosContent }]);
-      const { thinking, answer } = splitThinking(rawResponse);
-      if (thinking) {
-        document.getElementById("thinkBlock").classList.add("show");
-        document.getElementById("thinkBody").textContent = thinking;
+      } else {
+        setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
+        const cosmosMsg = buildTranscriptUser(transcript, keywords) + "\n\nAnswer using this format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your full answer immediately after the </think> tag.";
+        const cosmosRaw = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosMsg }]);
+        const { thinking, answer: analysis } = splitThinking(cosmosRaw);
+        if (thinking) {
+          document.getElementById("thinkBlock").classList.add("show");
+          document.getElementById("thinkBody").textContent = thinking;
+        }
+        step(2, "done");
+        step(3, "active");
+        setStatus("Nemotron Nano 9B \u2014 summarising\u2026");
+        rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [
+          sysMsg,
+          { role:"user", content:
+            "Refine the following analysis into the required output format.\n\n" +
+            (hasKw ? "Keywords: " + keywords.join(", ") + "\n\n" : "") +
+            "Analysis:\n" + analysis.slice(0, 10000) }
+        ]);
       }
-      rawResponse = answer;
-      step(2, "done");
 
-    } else {
-      // Pipeline: Cosmos VLM analyses frames/transcript → Nemotron polishes text
-      setStatus("Cosmos Reason2 8B \u2014 reasoning\u2026");
-      const cosmosContent = appendCosmosReasoning(rawContent);
-      const cosmosRaw = await nvidiaChatCall(key, MODEL_ID.cosmos, [sysMsg, { role:"user", content: cosmosContent }]);
-      const { thinking, answer: analysis } = splitThinking(cosmosRaw);
-      if (thinking) {
-        document.getElementById("thinkBlock").classList.add("show");
-        document.getElementById("thinkBody").textContent = thinking;
-      }
-      step(2, "done");
+      /* STEP 3 — render */
       step(3, "active");
-      // Nemotron receives only text at this point — no frames
-      setStatus("Nemotron Nano 9B \u2014 summarising\u2026");
-      rawResponse = await nvidiaChatCall(key, MODEL_ID.nemotron, [
-        sysMsg,
-        { role:"user", content:
-          "Refine the following analysis into the required output format.\n\n" +
-          (hasKw ? "Keywords: " + keywords.join(", ") + "\n\n" : "") +
-          "Analysis:\n" + analysis.slice(0, 10000) }
-      ]);
+      setStatus("Rendering\u2026");
+
+      if (hasKw) {
+        const kwSec = extractKeywordSection(rawResponse);
+        renderKeywords(parseKeywordResults(kwSec, keywords), transcript);
+      }
+
+      const gist = extractGist(rawResponse);
+      if (gist) {
+        document.getElementById("gistBox").textContent = gist;
+        document.getElementById("gistBox").classList.add("show");
+      }
+
+      const display = rawResponse
+        .replace(/^GIST:\s*\n[\s\S]*?(?=\n\nKEY POINTS:|\n\nSUMMARY:|$)/im, "")
+        .replace(/KEYWORD SEARCH:\s*\n[\s\S]*/i, "")
+        .trim();
+
+      step(3, "done");
+      await typewrite(document.getElementById("summaryOut"), display);
+
+      setStatus("");
+      document.getElementById("actionRow").classList.add("show");
     }
-
-    /* STEP 3 — render */
-    step(3, "active");
-    setStatus("Rendering\u2026");
-
-    if (hasKw) {
-      const kwSec = extractKeywordSection(rawResponse);
-      renderKeywords(parseKeywordResults(kwSec, keywords), transcript);
-    }
-
-    const gist = extractGist(rawResponse);
-    if (gist) {
-      document.getElementById("gistBox").textContent = gist;
-      document.getElementById("gistBox").classList.add("show");
-    }
-
-    const display = rawResponse
-      .replace(/^GIST:\s*\n[\s\S]*?(?=\n\nKEY POINTS:|\n\nSUMMARY:|$)/im, "")
-      .replace(/KEYWORD SEARCH:\s*\n[\s\S]*/i, "")
-      .trim();
-
-    step(3, "done");
-    await typewrite(document.getElementById("summaryOut"), display);
-
-    setStatus("");
-    document.getElementById("actionRow").classList.add("show");
 
   } catch (err) {
     setStatus("");
     const msg = String(err.message || err);
     if (/NetworkError|Failed to fetch|network|CORS|fetch/i.test(msg)) {
       showErr(
-        "Network error reaching the NVIDIA API via CORS proxy. " +
-        "Please check your internet connection, verify your API key is correct, and try again. " +
-        "(" + msg.slice(0,120) + ")"
+        "Network error. If using file upload, ensure your backend is running (http://localhost:8000). " +
+        "For YouTube, check your internet connection and API key. " +
+        "(" + msg.slice(0,100) + ")"
       );
     } else {
       showErr(msg);
