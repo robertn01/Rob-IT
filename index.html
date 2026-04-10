@@ -984,21 +984,34 @@ async function extractFramesFromVideo(videoFile, frameCount = 3) {
  * Uses the video filename and duration as context
  */
 async function generateVideoDescription(videoFile, frames) {
-  console.info(`[Description] Generating description from ${frames.length} frames...`);
+  console.info(`[Description] Processing ${frames.length} frames for API...`);
   
   const videoName = videoFile.name.replace(/\.[^.]+$/, ""); // Remove extension
-  const frameDescriptions = frames
-    .map((f, i) => `[Frame ${i + 1} @ ${f.timestamp.toFixed(1)}s]`)
-    .join("\n");
+  
+  // Build content array with text + images for vision models
+  const contentArray = [
+    {
+      type: "text",
+      text: `Video: ${videoName}\nFrames analyzed: ${frames.length}\n\nPlease analyze these video frames:`,
+    },
+  ];
 
-  const description = `Video: ${videoName}
-Frames analyzed: ${frames.length}
-${frameDescriptions}
+  // Add each frame as an image to the content array
+  frames.forEach((f, i) => {
+    contentArray.push({
+      type: "image_url",
+      image_url: {
+        url: f.data, // Base64-encoded image (data:image/jpeg;base64,...)
+      },
+    });
+    contentArray.push({
+      type: "text",
+      text: `Frame ${i + 1} @ ${f.timestamp.toFixed(1)}s`,
+    });
+  });
 
-Analyze what's happening in this video based on the extracted frames at these timestamps.`;
-
-  console.info(`[Description] ✓ Description generated (${description.length} chars)`);
-  return description;
+  console.info(`[Description] ✓ Built content array with ${frames.length} images + text`);
+  return contentArray;
 }
 
 
@@ -1254,15 +1267,19 @@ async function run() {
             role: "system",
             content:
               "You are an expert video analyst and summarizer. " +
-              "Based on the video frames and timestamps provided, " +
+              "Based on the video frames provided, " +
               "produce a structured summary with clear headings and bullet points.",
           },
           {
             role: "user",
-            content:
-              videoDescription +
-              "\n\nBased on these video frames, provide a comprehensive summary " +
-              "of what happens in the video, key actions, and important details.",
+            content: [
+              ...videoDescription,
+              {
+                type: "text",
+                text: "Based on these video frames, provide a comprehensive summary " +
+                      "of what happens in the video, key actions, and important details.",
+              },
+            ],
           },
         ],
         text => { summaryEl.textContent = text; },
@@ -1281,13 +1298,17 @@ async function run() {
           { role: "system", content: "You are an expert video analyst with deep reasoning capabilities." },
           {
             role: "user",
-            content:
-              videoDescription +
-              "\n\nAnalyze this video comprehensively. Describe what's happening, " +
-              "identify key moments, and provide insights.\n\n" +
-              "Answer using this format:\n\n" +
-              "<think>\nYour detailed reasoning about the video.\n</think>\n\n" +
-              "Write your analysis immediately after the </think> tag.",
+            content: [
+              ...videoDescription,
+              {
+                type: "text",
+                text: "Analyze this video comprehensively. Describe what's happening, " +
+                      "identify key moments, and provide insights.\n\n" +
+                      "Answer using this format:\n\n" +
+                      "<think>\nYour detailed reasoning about the video.\n</think>\n\n" +
+                      "Write your analysis immediately after the </think> tag.",
+              },
+            ],
           },
         ],
         raw => {
@@ -1316,13 +1337,17 @@ async function run() {
           { role: "system", content: "You are an expert video analyst." },
           {
             role: "user",
-            content:
-              videoDescription +
-              "\n\nAnalyze what's happening in this video. Identify key events, " +
-              "actions, and important details.\n\n" +
-              "Format your response:\n\n" +
-              "<think>\nYour analysis reasoning.\n</think>\n\n" +
-              "Write your analysis immediately after the </think> tag.",
+            content: [
+              ...videoDescription,
+              {
+                type: "text",
+                text: "Analyze what's happening in this video. Identify key events, " +
+                      "actions, and important details.\n\n" +
+                      "Format your response:\n\n" +
+                      "<think>\nYour analysis reasoning.\n</think>\n\n" +
+                      "Write your analysis immediately after the </think> tag.",
+              },
+            ],
           },
         ],
         raw => {
