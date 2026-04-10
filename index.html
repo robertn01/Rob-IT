@@ -385,12 +385,18 @@
 /* ===================================================================
    CONSTANTS
    =================================================================== */
-// integrate.api.nvidia.com does not send CORS headers for browser
-// origins (GitHub Pages, etc.), so all NVIDIA API calls are routed
-// through corsproxy.io which adds Access-Control-Allow-Origin: *.
-const CORS_PROXY = "https://corsproxy.io/?url=";
+// NVIDIA's API has no CORS headers for browser origins, so calls are proxied.
+// corsproxy.io free plan blocks large JSON bodies (base64 image frames), so
+// we maintain a waterfall: try each proxy/direct in order until one works.
 const NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions";
-const API_URL = CORS_PROXY + encodeURIComponent(NVIDIA_ENDPOINT);
+const PROXY_LIST = [
+  // 1. corsproxy.io — reliable for text-only payloads
+  u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+  // 2. allorigins raw — alternative proxy (GET-forwards but also passes POST)
+  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  // 3. Direct — works if NVIDIA ever enables CORS, or in environments without restrictions
+  u => u,
+];
 
 const MODEL_ID = {
   nemotron: "nvidia/nvidia-nemotron-nano-9b-v2",
@@ -478,8 +484,11 @@ function extractFrames(file, count) {
     video.muted = true; video.playsInline = true;
     const blobUrl = URL.createObjectURL(file);
     video.src = blobUrl;
+    // Keep frames small: 320×180 at quality 0.4 ≈ 8–12 KB each as base64.
+    // 4 frames × ~10 KB = ~40 KB total — well within free CORS proxy limits.
+    // (512×288 at 0.75 = ~60–120 KB each, which triggers corsproxy.io's 403.)
     const canvas = document.createElement("canvas");
-    canvas.width = 512; canvas.height = 288;
+    canvas.width = 320; canvas.height = 180;
     const ctx = canvas.getContext("2d");
 
     video.addEventListener("loadedmetadata", async () => {
@@ -489,8 +498,8 @@ function extractFrames(file, count) {
         const t = i === 0 ? 0.5 : (dur / (count - 1)) * i;
         video.currentTime = t;
         await new Promise(r => { video.onseeked = r; setTimeout(r, 1000); });
-        ctx.drawImage(video, 0, 0, 512, 288);
-        frames.push(canvas.toDataURL("image/jpeg", 0.75).split(",")[1]);
+        ctx.drawImage(video, 0, 0, 320, 180);
+        frames.push(canvas.toDataURL("image/jpeg", 0.4).split(",")[1]);
       }
       URL.revokeObjectURL(blobUrl);
       resolve(frames);
@@ -564,22 +573,58 @@ async function fetchMeta(videoId) {
 }
 
 /* ===================================================================
-   NVIDIA API — via CORS proxy, non-streaming for reliability
+   NVIDIA API — proxy waterfall, non-streaming
+   Tries each proxy in PROXY_LIST until one succeeds. A 403 from a proxy
+   (not from NVIDIA) means the proxy rejected the request — move on.
+   A 4xx/5xx from NVIDIA itself is a real error — throw immediately.
    =================================================================== */
 async function nvidiaChatCall(apiKey, model, messages) {
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, max_tokens: 1400, temperature: 0.2, top_p: 0.7, stream: false }),
-  });
-  if (!res.ok) {
-    let msg = "NVIDIA API error " + res.status;
-    try { const j = await res.json(); msg += ": " + (j.detail || j.message || JSON.stringify(j).slice(0,200)); }
-    catch { const t = await res.text().catch(()=>""); if (t) msg += ": " + t.slice(0,200); }
-    throw new Error(msg);
+  const body = JSON.stringify({ model, messages, max_tokens: 1400, temperature: 0.2, top_p: 0.7, stream: false });
+  const headers = { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" };
+
+  let lastErr = null;
+
+  for (let i = 0; i < PROXY_LIST.length; i++) {
+    const url = PROXY_LIST[i](NVIDIA_ENDPOINT);
+    const isDirect = (url === NVIDIA_ENDPOINT);
+    try {
+      const res = await fetch(url, { method: "POST", headers, body,
+        signal: AbortSignal.timeout(60000) });
+
+      // 403 from corsproxy/allorigins = proxy rejected content → try next
+      if (!isDirect && res.status === 403) {
+        lastErr = new Error("Proxy " + (i+1) + " rejected the request (403 — content restriction).");
+        continue;
+      }
+
+      if (!res.ok) {
+        // Real NVIDIA error — parse and throw immediately
+        let msg = "NVIDIA API error " + res.status;
+        try { const j = await res.json(); msg += ": " + JSON.stringify(j).slice(0,300); }
+        catch { msg += ": " + (await res.text().catch(()=>"")).slice(0,200); }
+        throw new Error(msg);
+      }
+
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || "";
+
+    } catch (e) {
+      // Network / CORS / timeout errors on direct call or proxy → try next
+      if (e.name === "TypeError" || e.name === "AbortError" || /fetch|network|CORS/i.test(e.message)) {
+        lastErr = e;
+        continue;
+      }
+      throw e; // Real NVIDIA errors rethrown immediately
+    }
   }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+
+  // All proxies exhausted
+  throw new Error(
+    "Could not reach the NVIDIA API through any available route.\n" +
+    "Last error: " + (lastErr?.message || "unknown") + "\n\n" +
+    "Tips: check your API key, try a YouTube URL instead of a file upload, " +
+    "or open the browser console for more detail."
+  );
 }
 
 /* ===================================================================
@@ -824,7 +869,7 @@ async function run() {
 
     if (_inputMode === "upload") {
       setStatus("Extracting frames from video\u2026");
-      frames = await extractFrames(_uploadedFile, 10);
+      frames = await extractFrames(_uploadedFile, 4); // 4 small frames ≈ 40 KB total
       setStatus("Extracted " + frames.length + " frames \u2014 ready");
     } else if (videoId) {
       setStatus("Fetching transcript & metadata\u2026");
